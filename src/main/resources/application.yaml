@@ -1,0 +1,34 @@
+spring:
+  application:
+    name: ai-novel-studio
+  datasource:
+    url: ${AI_NOVEL_DB_URL:jdbc:mysql://127.0.0.1:3306/ai_novel_studio?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true}
+    username: ${AI_NOVEL_DB_USERNAME:root}
+    password: ${AI_NOVEL_DB_PASSWORD:123456}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      pool-name: ai-novel-studio-pool
+      maximum-pool-size: 10
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+  jackson:
+    time-zone: Asia/Shanghai
+    serialization:
+      write-dates-as-timestamps: false
+
+server:
+  port: ${SERVER_PORT:8080}
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    db-config:
+      id-type: auto
+
+app:
+  ai:
+    # 第三版模型调用统一走后端 NovelAiClient；无可用模型或调用失败时回退 mock。
+    enabled: true

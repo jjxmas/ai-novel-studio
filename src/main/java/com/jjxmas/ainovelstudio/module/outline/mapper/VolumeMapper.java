@@ -1,0 +1,10 @@
+package com.jjxmas.ainovelstudio.module.outline.mapper;
+
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.jjxmas.ainovelstudio.module.outline.entity.Volume;
+import org.apache.ibatis.annotations.Mapper;
+
+@Mapper
+public interface VolumeMapper extends BaseMapper<Volume> {
+}
+

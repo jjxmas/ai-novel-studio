@@ -1,0 +1,19 @@
+package com.jjxmas.ainovelstudio.ai;
+
+/**
+ * 小说创作中的模型任务类型。第一阶段只定义枚举，不接真实模型。
+ */
+public enum AiTaskType {
+
+    IDEA_GENERATION,
+    IDEA_EVALUATION,
+    SETTING_GENERATION,
+    OUTLINE_GENERATION,
+    CHAPTER_GENERATION,
+    CHAPTER_SUMMARY,
+    MEMORY_COMPRESSION,
+    GLOBAL_MEMORY_UPDATE,
+    CONTINUITY_CHECK,
+    STYLE_CHECK,
+    REWRITE
+}
