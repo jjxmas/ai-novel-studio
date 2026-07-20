@@ -3,6 +3,8 @@ package com.jjxmas.ainovelstudio.module.idea.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.jjxmas.ainovelstudio.ai.AiGenerateResult;
+import com.jjxmas.ainovelstudio.ai.AiOrchestratorService;
 import com.jjxmas.ainovelstudio.common.exception.BusinessException;
 import com.jjxmas.ainovelstudio.common.exception.ErrorCode;
 import com.jjxmas.ainovelstudio.common.util.JsonUtils;
@@ -20,8 +22,11 @@ import com.jjxmas.ainovelstudio.module.project.entity.Project;
 import com.jjxmas.ainovelstudio.module.project.mapper.ProjectMapper;
 import com.jjxmas.ainovelstudio.module.version.service.VersionService;
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.IntStream;
+
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,16 +37,19 @@ public class IdeaServiceImpl extends ServiceImpl<IdeaMapper, Idea> implements Id
     private final ProjectMapper projectMapper;
     private final GenerationJobService generationJobService;
     private final VersionService versionService;
+    private final AiOrchestratorService aiOrchestratorService;
 
     public IdeaServiceImpl(
             IdeaEvaluationMapper ideaEvaluationMapper,
             ProjectMapper projectMapper,
             GenerationJobService generationJobService,
-            VersionService versionService) {
+            VersionService versionService,
+            AiOrchestratorService aiOrchestratorService) {
         this.ideaEvaluationMapper = ideaEvaluationMapper;
         this.projectMapper = projectMapper;
         this.generationJobService = generationJobService;
         this.versionService = versionService;
+        this.aiOrchestratorService = aiOrchestratorService;
     }
 
     @Override
@@ -49,8 +57,8 @@ public class IdeaServiceImpl extends ServiceImpl<IdeaMapper, Idea> implements Id
     public List<IdeaResponse> generateIdeas(IdeaGenerateRequest request) {
         Project project = requireProject(request.getProjectId());
         int ideaCount = normalizeIdeaCount(request.getIdeaCount());
-        return java.util.stream.IntStream.rangeClosed(1, ideaCount)
-                .mapToObj(index -> createMockIdea(project, request, index))
+        return IntStream.rangeClosed(1, ideaCount)
+                .mapToObj(index -> createGeneratedIdea(project, request, index))
                 .toList();
     }
 
@@ -93,8 +101,15 @@ public class IdeaServiceImpl extends ServiceImpl<IdeaMapper, Idea> implements Id
     @Transactional
     public IdeaResponse rewriteIdea(Long ideaId, IdeaRewriteRequest request) {
         Idea idea = requireIdea(ideaId);
-        idea.setSummary(idea.getSummary() + "\n\n根据修改意见调整：" + request.getInstruction())
-                .setMainConflict(idea.getMainConflict() + "\n补强冲突：" + request.getInstruction())
+        AiGenerateResult result = aiOrchestratorService.rewriteIdea(
+                request.getModelConfigId(),
+                ideaSnapshot(idea).toString(),
+                request.getInstruction());
+        String content = defaultText(result.getContent(), idea.getSummary() + "\n\n根据修改意见调整：" + request.getInstruction());
+        idea.setTitle(extractField(content, "标题", defaultText(idea.getTitle(), "重写后的创意方案")))
+                .setWorldview(extractField(content, "世界观", defaultText(idea.getWorldview(), "")))
+                .setMainConflict(extractField(content, "主线冲突", defaultText(idea.getMainConflict(), "根据修改意见补强主线冲突")))
+                .setSummary(content)
                 .setModelConfigId(request.getModelConfigId());
         updateById(idea);
         Long jobId = generationJobService.recordFinishedJob(
@@ -104,7 +119,7 @@ public class IdeaServiceImpl extends ServiceImpl<IdeaMapper, Idea> implements Id
                 idea.getId(),
                 request.getModelConfigId(),
                 Map.of("instruction", request.getInstruction()),
-                ideaSnapshot(idea));
+                Map.of("idea", ideaSnapshot(idea), "modelName", defaultText(result.getModelName(), "")));
         versionService.recordVersion(
                 idea.getProjectId(),
                 "idea",
@@ -143,18 +158,21 @@ public class IdeaServiceImpl extends ServiceImpl<IdeaMapper, Idea> implements Id
         return toResponse(idea);
     }
 
-    private IdeaResponse createMockIdea(Project project, IdeaGenerateRequest request, int index) {
+    private IdeaResponse createGeneratedIdea(Project project, IdeaGenerateRequest request, int index) {
         String genreText = String.join(" + ", JsonUtils.toStringList(project.getGenres()));
+        Map<String, Object> context = ideaContext(project, request, genreText);
+        AiGenerateResult result = aiOrchestratorService.generateIdea(request.getModelConfigId(), context, index);
+        String content = defaultText(result.getContent(), request.getBriefDescription() + "。方案" + index + " 强调长篇连载节奏和阶段性目标");
         Idea idea = new Idea()
                 .setProjectId(project.getId())
-                .setTitle("创意方案 " + index + "：" + genreText + "新手长篇")
+                .setTitle(firstTitle(content, "创意方案 " + index + "：" + genreText + "新手长篇"))
                 .setSellingPoints(JsonUtils.toJson(List.of("开局目标清晰", "升级反馈稳定", "长期冲突可扩展")))
-                .setWorldview("以《" + genreText + "》为底色，主角从熟悉环境进入更大的规则体系")
-                .setMainConflict("主角想掌控命运，但既有秩序不断压缩选择空间")
+                .setWorldview(extractField(content, "世界观", "以《" + genreText + "》为底色，主角从熟悉环境进入更大的规则体系"))
+                .setMainConflict(extractField(content, "主线冲突", "主角想掌控命运，但既有秩序不断压缩选择空间"))
                 .setEstimatedWordCount(project.getTargetWordCountMax() == null || project.getTargetWordCountMax() == 0
                         ? 2_000_000
                         : project.getTargetWordCountMax())
-                .setSummary(request.getBriefDescription() + "。方案" + index + " 强调长篇连载节奏和阶段性目标")
+                .setSummary(content)
                 .setStatus("candidate")
                 .setModelConfigId(request.getModelConfigId());
         save(idea);
@@ -182,9 +200,9 @@ public class IdeaServiceImpl extends ServiceImpl<IdeaMapper, Idea> implements Id
                 "idea",
                 idea.getId(),
                 request.getModelConfigId(),
-                Map.of("briefDescription", request.getBriefDescription(), "ideaCount", normalizeIdeaCount(request.getIdeaCount())),
-                snapshot);
-        versionService.recordVersion(project.getId(), "idea", idea.getId(), snapshot, "ai_generate", "mock 生成创意", request.getModelConfigId(), jobId);
+                Map.of("context", context, "ideaCount", normalizeIdeaCount(request.getIdeaCount()), "index", index),
+                Map.of("idea", snapshot, "modelName", defaultText(result.getModelName(), "")));
+        versionService.recordVersion(project.getId(), "idea", idea.getId(), snapshot, "ai_generate", "AI 生成创意", request.getModelConfigId(), jobId);
         return toResponse(idea, evaluation);
     }
 
@@ -232,14 +250,59 @@ public class IdeaServiceImpl extends ServiceImpl<IdeaMapper, Idea> implements Id
     }
 
     private Map<String, Object> ideaSnapshot(Idea idea) {
-        return Map.of(
-                "title", idea.getTitle(),
-                "sellingPoints", JsonUtils.toStringList(idea.getSellingPoints()),
-                "worldview", idea.getWorldview(),
-                "mainConflict", idea.getMainConflict(),
-                "estimatedWordCount", idea.getEstimatedWordCount(),
-                "summary", idea.getSummary(),
-                "status", idea.getStatus());
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("title", defaultText(idea.getTitle(), ""));
+        snapshot.put("sellingPoints", JsonUtils.toStringList(idea.getSellingPoints()));
+        snapshot.put("worldview", defaultText(idea.getWorldview(), ""));
+        snapshot.put("mainConflict", defaultText(idea.getMainConflict(), ""));
+        snapshot.put("estimatedWordCount", idea.getEstimatedWordCount() == null ? 0 : idea.getEstimatedWordCount());
+        snapshot.put("summary", defaultText(idea.getSummary(), ""));
+        snapshot.put("status", defaultText(idea.getStatus(), ""));
+        return snapshot;
+    }
+
+    private Map<String, Object> ideaContext(Project project, IdeaGenerateRequest request, String genreText) {
+        Map<String, Object> context = new LinkedHashMap<>();
+        context.put("作品标题", defaultText(project.getTitle(), ""));
+        context.put("题材", genreText);
+        context.put("平台目标", defaultText(project.getPlatformTarget(), ""));
+        context.put("目标字数下限", project.getTargetWordCountMin() == null ? 0 : project.getTargetWordCountMin());
+        context.put("目标字数上限", project.getTargetWordCountMax() == null ? 0 : project.getTargetWordCountMax());
+        context.put("风格偏好", defaultText(project.getStylePreference(), ""));
+        context.put("作品描述", defaultText(request.getBriefDescription(), project.getProjectBrief()));
+        return context;
+    }
+
+    private String firstTitle(String content, String fallback) {
+        String title = extractField(content, "标题", "");
+        if (!title.isBlank()) {
+            return title;
+        }
+        return firstLine(content, fallback);
+    }
+
+    private String extractField(String content, String label, String fallback) {
+        if (content == null || content.isBlank()) {
+            return fallback;
+        }
+        for (String line : content.split("\\R")) {
+            String trimmed = line.trim();
+            if (trimmed.startsWith(label + "：") || trimmed.startsWith(label + ":")) {
+                return trimmed.substring(trimmed.indexOf(':') >= 0 ? trimmed.indexOf(':') + 1 : trimmed.indexOf('：') + 1).trim();
+            }
+        }
+        return fallback;
+    }
+
+    private String firstLine(String content, String fallback) {
+        if (content == null || content.isBlank()) {
+            return fallback;
+        }
+        return content.lines()
+                .map(String::trim)
+                .filter((line) -> !line.isBlank())
+                .findFirst()
+                .orElse(fallback);
     }
 
     private int normalizeIdeaCount(Integer ideaCount) {

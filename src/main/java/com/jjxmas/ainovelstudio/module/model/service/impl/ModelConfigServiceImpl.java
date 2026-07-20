@@ -10,8 +10,6 @@ import com.jjxmas.ainovelstudio.module.model.dto.ModelConfigResponse;
 import com.jjxmas.ainovelstudio.module.model.entity.ModelConfig;
 import com.jjxmas.ainovelstudio.module.model.mapper.ModelConfigMapper;
 import com.jjxmas.ainovelstudio.module.model.service.ModelConfigService;
-import java.nio.charset.StandardCharsets;
-import java.util.Base64;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,9 +23,9 @@ public class ModelConfigServiceImpl extends ServiceImpl<ModelConfigMapper, Model
         ModelConfig config = new ModelConfig()
                 .setProvider(request.getProvider())
                 .setDisplayName(request.getDisplayName())
-                .setBaseUrl(request.getBaseUrl())
-                .setModelName(request.getModelName())
-                .setApiKeyCiphertext(encodeApiKey(request.getApiKey()))
+                .setBaseUrl(trimToNull(request.getBaseUrl()))
+                .setModelName(request.getModelName().trim())
+                .setApiKeyCiphertext(normalizeApiKey(request.getApiKey()))
                 .setUsageType(request.getUsageType())
                 .setDefaultModel(Boolean.TRUE.equals(request.getDefaultModel()))
                 .setEnabled(!Boolean.FALSE.equals(request.getEnabled()))
@@ -51,12 +49,12 @@ public class ModelConfigServiceImpl extends ServiceImpl<ModelConfigMapper, Model
         validateRequiredFields(request);
         config.setProvider(request.getProvider())
                 .setDisplayName(request.getDisplayName())
-                .setBaseUrl(request.getBaseUrl())
-                .setModelName(request.getModelName())
+                .setBaseUrl(trimToNull(request.getBaseUrl()))
+                .setModelName(request.getModelName().trim())
                 .setUsageType(request.getUsageType())
                 .setEnabled(!Boolean.FALSE.equals(request.getEnabled()));
         if (request.getApiKey() != null && !request.getApiKey().isBlank()) {
-            config.setApiKeyCiphertext(encodeApiKey(request.getApiKey()));
+            config.setApiKeyCiphertext(normalizeApiKey(request.getApiKey()));
         }
         if (Boolean.TRUE.equals(request.getDefaultModel())) {
             clearDefaultModel();
@@ -121,8 +119,23 @@ public class ModelConfigServiceImpl extends ServiceImpl<ModelConfigMapper, Model
         }
     }
 
-    private String encodeApiKey(String apiKey) {
-        return Base64.getEncoder().encodeToString(apiKey.getBytes(StandardCharsets.UTF_8));
+    private String normalizeApiKey(String apiKey) {
+        String normalized = apiKey.trim();
+        if ((normalized.startsWith("\"") && normalized.endsWith("\""))
+                || (normalized.startsWith("'") && normalized.endsWith("'"))) {
+            normalized = normalized.substring(1, normalized.length() - 1).trim();
+        }
+        if (normalized.regionMatches(true, 0, "Bearer ", 0, "Bearer ".length())) {
+            normalized = normalized.substring("Bearer ".length()).trim();
+        }
+        return normalized;
+    }
+
+    private String trimToNull(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return value.trim();
     }
 
     private ModelConfigResponse toResponse(ModelConfig config) {

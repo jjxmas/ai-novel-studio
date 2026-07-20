@@ -6,7 +6,8 @@ import java.util.List;
 import lombok.Data;
 
 /**
- * 创意生成请求。真实模型调用后续通过 NovelAiClient 接入" */
+ * 创意生成请求。第三版通过后端 AI 编排服务生成，失败时回退 mock。
+ */
 @Data
 public class IdeaGenerateRequest {
 
@@ -22,4 +23,3 @@ public class IdeaGenerateRequest {
 
     private Integer ideaCount;
 }
-

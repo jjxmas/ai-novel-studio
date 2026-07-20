@@ -30,6 +30,27 @@ public class AiOrchestratorService {
                 .build());
     }
 
+    public AiGenerateResult generateIdea(Long modelConfigId, Map<String, Object> context, int index) {
+        return novelAiClient.generate(AiGenerateCommand.builder()
+                .modelConfigId(modelConfigId)
+                .taskType(AiTaskType.IDEA_GENERATION)
+                .systemPrompt(promptTemplateService.systemPrompt(AiTaskType.IDEA_GENERATION))
+                .userPrompt(promptTemplateService.ideaGenerationPrompt(context, index))
+                .context(context)
+                .temperature(0.85)
+                .build());
+    }
+
+    public AiGenerateResult rewriteIdea(Long modelConfigId, String original, String instruction) {
+        return novelAiClient.generate(AiGenerateCommand.builder()
+                .modelConfigId(modelConfigId)
+                .taskType(AiTaskType.REWRITE)
+                .systemPrompt(promptTemplateService.systemPrompt(AiTaskType.REWRITE))
+                .userPrompt(promptTemplateService.ideaRewritePrompt(original, instruction))
+                .temperature(0.75)
+                .build());
+    }
+
     public AiGenerateResult rewriteChapter(
             Long modelConfigId,
             Map<String, Object> context,

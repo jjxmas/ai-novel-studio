@@ -11,7 +11,7 @@
 - 模型调用：前端只传 `modelConfigId` 或使用默认模型，所有模型调用必须经过后端。
 - API Key：只允许在模型配置写入接口中提交；查询接口只返回 `hasApiKey`，不返回明文 API Key。
 - 生成策略：创意、设定库、大纲等非章节链路可继续使用第二版 mock；章节正文生成、章节重写和摘要压缩优先走后端 AI 编排服务，模型不可用时允许后端回退 mock。
-- 模型适配：第三版先通过 OpenAI-compatible HTTP 适配器接真实模型，并保留 `NovelAiClient` 端口，后续可替换为 Spring AI `ChatClient` 实现。
+- 模型适配：第三版通过 Spring AI `ChatClient` 接 OpenAI-compatible 模型，并保留 `NovelAiClient` 端口；模型不可用时回退 mock。
 - 版本记录：每次 mock 生成、用户直接编辑、根据修改意见重生成、确认内容时，都必须写入 `content_versions`。
 - 章节记忆：章节正文生成或重写成功后，后端应刷新单章摘要、近窗记忆、中层记忆、高层记忆和全局总摘要；摘要生成与压缩也必须写入版本记录。
 - 时间格式：使用 ISO-8601 字符串，例如 `2026-07-19T20:30:00`。
@@ -277,7 +277,7 @@
 
 ## 8. 创意接口
 
-### 8.1 生成多个创意（第二版实现，mock）
+### 8.1 生成多个创意（第三版实现，AI + mock fallback）
 
 `POST /projects/{projectId}/ideas/generate`
 
@@ -317,8 +317,8 @@
 生成后必须写入版本记录：
 
 - `entityType = idea`
-- `changeSource = mock_generate`
-- `changeNote = 创意 mock 生成`
+- `changeSource = ai_generate`
+- `changeNote = AI 生成创意`
 
 ### 8.2 查询创意列表（第二版实现）
 
@@ -357,7 +357,7 @@
 - `changeSource = user_edit`
 - `changeNote` 使用请求中的 `changeNote`
 
-### 8.5 根据修改意见重生成创意（第二版实现，mock）
+### 8.5 根据修改意见重生成创意（第三版实现，AI + mock fallback）
 
 `POST /ideas/{ideaId}/rewrite`
 
@@ -366,7 +366,7 @@
 ```json
 {
   "modelConfigId": 1,
-  "revisionAdvice": "减少套路感，让主角目标更明确，保留都市夜市元素。"
+  "instruction": "减少套路感，让主角目标更明确，保留都市夜市元素。"
 }
 ```
 
@@ -374,7 +374,7 @@
 
 必须写入版本记录：
 
-- `changeSource = mock_rewrite`
+- `changeSource = ai_rewrite`
 - `changeNote = 根据修改意见重生成创意`
 
 ### 8.6 选择创意（第二版实现）

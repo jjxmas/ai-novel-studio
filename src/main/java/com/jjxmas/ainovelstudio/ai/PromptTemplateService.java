@@ -8,13 +8,43 @@ public class PromptTemplateService {
 
     public String systemPrompt(AiTaskType taskType) {
         return switch (taskType) {
+            case IDEA_GENERATION -> "你是长篇网文创意策划助手。请生成适合新手持续写作的长篇小说创意，输出中文内容。";
             case CHAPTER_GENERATION -> "你是长篇网文写作助手。请遵守已确认设定和大纲，只输出章节正文，不解释过程。";
-            case REWRITE -> "你是长篇网文改写助手。请根据用户修改意见重写正文，保持人物、时间线、地点和设定一致。";
+            case REWRITE -> "你是长篇网文改写助手。请根据用户修改意见重写内容，保持原目标和关键设定一致。";
             case CHAPTER_SUMMARY -> "你是小说章节摘要助手。请提取剧情、人物状态、地点移动和伏笔变化，输出中文摘要。";
             case MEMORY_COMPRESSION -> "你是长篇小说记忆压缩助手。请把多条摘要压缩成一条中高层记忆，保留主线、人物变化和伏笔。";
             case GLOBAL_MEMORY_UPDATE -> "你是长篇小说总摘要维护助手。请根据旧总摘要和新阶段摘要更新全局总摘要。";
             default -> "你是小说创作助手。请按用户要求输出中文内容。";
         };
+    }
+
+    public String ideaGenerationPrompt(Map<String, Object> context, int index) {
+        return """
+                请生成第 %d 个长篇小说创意方案。
+
+                【作品输入】
+                %s
+
+                输出要求：
+                1. 包含标题、卖点、世界观、主线冲突、预估字数、风险提示。
+                2. 适合新手按阶段扩写，不要只给一句梗概。
+                3. 重点考虑长篇承载力、人物目标、平台连载节奏。
+                4. 只输出这个方案本身，不要解释生成过程。
+                """.formatted(index, context);
+    }
+
+    public String ideaRewritePrompt(String original, String instruction) {
+        return """
+                请根据修改意见重写这个小说创意方案。
+
+                【原创意】
+                %s
+
+                【修改意见】
+                %s
+
+                要求：保留长篇承载力，强化卖点、世界观和主线冲突，只输出重写后的创意方案。
+                """.formatted(original, instruction);
     }
 
     public String chapterGenerationPrompt(Map<String, Object> context, String title, String outline, String advice) {

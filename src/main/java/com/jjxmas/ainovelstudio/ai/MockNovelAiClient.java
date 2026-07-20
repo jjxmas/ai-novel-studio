@@ -36,8 +36,18 @@ public class MockNovelAiClient implements NovelAiClient {
         if (command.getTaskType() == AiTaskType.GLOBAL_MEMORY_UPDATE) {
             return "全局总摘要：作品主线继续推进，已完成内容围绕核心冲突逐步扩展，重要设定与人物变化保持记录。";
         }
+        if (command.getTaskType() == AiTaskType.IDEA_GENERATION) {
+            return """
+                    标题：低门槛长篇成长方案
+                    卖点：主角目标清晰，开局事件容易写，升级反馈稳定。
+                    世界观：普通现实背后藏着更大的资源秩序，主角从熟悉生活进入超凡规则。
+                    主线冲突：主角想守住原本生活，但新秩序不断压缩他的选择空间。
+                    预估字数：150万-220万字。
+                    风险提示：中后期需要持续设计阶段目标，避免只靠升级重复推进。
+                    """;
+        }
         if (command.getTaskType() == AiTaskType.REWRITE) {
-            return command.getUserPrompt() + "\n\n【按修改意见重写后的 mock 正文】\n人物目标更明确，场景动作更具体，结尾继续保留章节钩子。";
+            return command.getUserPrompt() + "\n\n【按修改意见重写后的 mock 内容】\n目标更明确，冲突更具体，后续扩写空间继续保留。";
         }
         return """
                 主角带着明确目标进入本章场景，却很快遇到与设定规则相关的阻碍。

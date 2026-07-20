@@ -7,7 +7,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * 模型调用命令。后续 Spring AI 适配器统一读取这个对象。
+ * 模型调用命令。Spring AI ChatClient 适配器统一读取这个对象。
  */
 @Data
 @Builder

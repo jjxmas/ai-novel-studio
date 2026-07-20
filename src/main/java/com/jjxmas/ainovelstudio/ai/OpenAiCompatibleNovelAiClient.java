@@ -2,41 +2,33 @@ package com.jjxmas.ainovelstudio.ai;
 
 import com.jjxmas.ainovelstudio.module.model.entity.ModelConfig;
 import com.jjxmas.ainovelstudio.module.model.mapper.ModelConfigMapper;
-import java.nio.charset.StandardCharsets;
-import java.time.Duration;
-import java.util.Base64;
-import java.util.List;
 import java.util.Map;
-import org.springframework.boot.web.client.RestTemplateBuilder;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
+import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.openai.OpenAiChatModel;
+import org.springframework.ai.openai.OpenAiChatOptions;
+import org.springframework.ai.openai.api.OpenAiApi;
 import org.springframework.context.annotation.Primary;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.RestClientException;
-import org.springframework.web.client.RestTemplate;
 
 /**
- * OpenAI-compatible 调用适配器。后续可替换为 Spring AI ChatClient 实现。
+ * 基于 Spring AI ChatClient 的 OpenAI-compatible 调用适配器。
  */
 @Primary
 @Component
 public class OpenAiCompatibleNovelAiClient implements NovelAiClient {
 
+    private static final Logger log = LoggerFactory.getLogger(OpenAiCompatibleNovelAiClient.class);
+
     private final ModelConfigMapper modelConfigMapper;
     private final MockNovelAiClient mockNovelAiClient;
-    private final RestTemplate restTemplate;
 
     public OpenAiCompatibleNovelAiClient(
             ModelConfigMapper modelConfigMapper,
-            MockNovelAiClient mockNovelAiClient,
-            RestTemplateBuilder restTemplateBuilder) {
+            MockNovelAiClient mockNovelAiClient) {
         this.modelConfigMapper = modelConfigMapper;
         this.mockNovelAiClient = mockNovelAiClient;
-        this.restTemplate = restTemplateBuilder
-                .connectTimeout(Duration.ofSeconds(10))
-                .readTimeout(Duration.ofSeconds(60))
-                .build();
     }
 
     @Override
@@ -46,11 +38,12 @@ public class OpenAiCompatibleNovelAiClient implements NovelAiClient {
             return mockNovelAiClient.generate(command);
         }
         try {
-            Map<?, ?> response = restTemplate.postForObject(
-                    chatCompletionsUrl(config.getBaseUrl()),
-                    new HttpEntity<>(requestBody(command, config), headers(config)),
-                    Map.class);
-            String content = extractContent(response);
+            String content = chatClient(command, config)
+                    .prompt()
+                    .system(blankToEmpty(command.getSystemPrompt()))
+                    .user(blankToEmpty(command.getUserPrompt()))
+                    .call()
+                    .content();
             if (content == null || content.isBlank()) {
                 return mockNovelAiClient.generate(command);
             }
@@ -58,10 +51,14 @@ public class OpenAiCompatibleNovelAiClient implements NovelAiClient {
                     .success(true)
                     .content(content)
                     .modelName(config.getModelName())
-                    .usage(rawUsage(response))
-                    .rawResponse(String.valueOf(response))
+                    .usage(Map.of("springAiChatClient", true))
+                    .rawResponse(content)
                     .build();
-        } catch (RestClientException | IllegalArgumentException ex) {
+        } catch (RuntimeException ex) {
+            log.warn("Spring AI ChatClient 调用失败，已回退 mock。modelConfigId={}, modelName={}",
+                    config.getId(),
+                    config.getModelName(),
+                    ex);
             return mockNovelAiClient.generate(command);
         }
     }
@@ -81,69 +78,53 @@ public class OpenAiCompatibleNovelAiClient implements NovelAiClient {
                 .orElse(null);
     }
 
-    private Map<String, Object> requestBody(AiGenerateCommand command, ModelConfig config) {
-        return Map.of(
-                "model", blankToDefault(config.getModelName(), "gpt-4o-mini"),
-                "temperature", command.getTemperature() == null ? 0.7 : command.getTemperature(),
-                "messages", List.of(
-                        Map.of("role", "system", "content", blankToEmpty(command.getSystemPrompt())),
-                        Map.of("role", "user", "content", blankToEmpty(command.getUserPrompt()))));
+    private ChatClient chatClient(AiGenerateCommand command, ModelConfig config) {
+        OpenAiApi openAiApi = OpenAiApi.builder()
+                .baseUrl(normalizeBaseUrl(config.getBaseUrl()))
+                .apiKey(normalizeApiKey(config.getApiKeyCiphertext()))
+                .build();
+        OpenAiChatOptions options = OpenAiChatOptions.builder()
+                .model(modelNameOrDefault(config.getModelName()))
+                .temperature(command.getTemperature() == null ? 0.7 : command.getTemperature())
+                .build();
+        OpenAiChatModel chatModel = OpenAiChatModel.builder()
+                .openAiApi(openAiApi)
+                .defaultOptions(options)
+                .build();
+        return ChatClient.create(chatModel);
     }
 
-    private HttpHeaders headers(ModelConfig config) {
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.setBearerAuth(decodeApiKey(config.getApiKeyCiphertext()));
-        return headers;
-    }
-
-    private String chatCompletionsUrl(String baseUrl) {
-        String normalized = baseUrl == null || baseUrl.isBlank()
-                ? "https://api.openai.com/v1"
-                : baseUrl.replaceAll("/+$", "");
-        if (normalized.endsWith("/chat/completions")) {
-            return normalized;
+    private String normalizeApiKey(String apiKey) {
+        String normalized = apiKey.trim();
+        if ((normalized.startsWith("\"") && normalized.endsWith("\""))
+                || (normalized.startsWith("'") && normalized.endsWith("'"))) {
+            normalized = normalized.substring(1, normalized.length() - 1).trim();
         }
-        return normalized + "/chat/completions";
-    }
-
-    private String decodeApiKey(String ciphertext) {
-        return new String(Base64.getDecoder().decode(ciphertext), StandardCharsets.UTF_8);
+        if (normalized.regionMatches(true, 0, "Bearer ", 0, "Bearer ".length())) {
+            normalized = normalized.substring("Bearer ".length()).trim();
+        }
+        return normalized;
     }
 
     private String blankToEmpty(String value) {
         return value == null ? "" : value;
     }
 
-    private String blankToDefault(String value, String defaultValue) {
-        return value == null || value.isBlank() ? defaultValue : value;
+    private String modelNameOrDefault(String value) {
+        return value == null || value.isBlank() ? "gpt-4o-mini" : value;
     }
 
-    private Map<String, Object> rawUsage(Map<?, ?> response) {
-        if (response == null || response.get("usage") == null) {
-            return Map.of();
+    private String normalizeBaseUrl(String baseUrl) {
+        if (baseUrl == null || baseUrl.isBlank()) {
+            return "https://api.openai.com";
         }
-        return Map.of("rawUsage", response.get("usage"));
-    }
-
-    @SuppressWarnings("unchecked")
-    private String extractContent(Map<?, ?> response) {
-        if (response == null) {
-            return null;
+        String normalized = baseUrl.replaceAll("/+$", "");
+        if (normalized.endsWith("/v1/chat/completions")) {
+            normalized = normalized.substring(0, normalized.length() - "/v1/chat/completions".length());
         }
-        Object choicesValue = response.get("choices");
-        if (!(choicesValue instanceof List<?> choices) || choices.isEmpty()) {
-            return null;
+        if (normalized.endsWith("/v1")) {
+            normalized = normalized.substring(0, normalized.length() - "/v1".length());
         }
-        Object firstChoice = choices.get(0);
-        if (!(firstChoice instanceof Map<?, ?> choice)) {
-            return null;
-        }
-        Object messageValue = choice.get("message");
-        if (!(messageValue instanceof Map<?, ?> message)) {
-            return null;
-        }
-        Object content = message.get("content");
-        return content == null ? null : String.valueOf(content);
+        return normalized;
     }
 }
