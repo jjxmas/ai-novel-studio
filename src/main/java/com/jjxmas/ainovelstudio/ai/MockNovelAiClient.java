@@ -19,7 +19,6 @@ public class MockNovelAiClient implements NovelAiClient {
                 .content(mockContent(command))
                 .modelName("mock-novel-model")
                 .usage(Map.of("fallback", true))
-                .rawResponse("")
                 .build();
     }
 

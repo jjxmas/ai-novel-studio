@@ -366,6 +366,20 @@ button:disabled,
   color: #334155;
 }
 
+.tag-list__item--button {
+  cursor: pointer;
+}
+
+.tag-list__item--button:hover {
+  border-color: #93c5fd;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.selected-genre-list {
+  min-height: 32px;
+}
+
 .toolbar {
   display: flex;
   flex-wrap: wrap;

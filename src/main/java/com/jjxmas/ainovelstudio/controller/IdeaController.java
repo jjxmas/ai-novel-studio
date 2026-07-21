@@ -83,7 +83,9 @@ public class IdeaController {
         ideaService.deleteIdea(ideaId);
         return ApiResponse.success("创意已删除", null);
     }
-
+    /**
+     * 将指定创意标记为项目选中方案。
+     */
     @PostMapping("/ideas/{ideaId}/select")
     public ApiResponse<IdeaResponse> selectIdea(@PathVariable Long ideaId) {
         return ApiResponse.success("创意已选中", ideaService.selectIdea(ideaId));

@@ -4,6 +4,8 @@ import com.jjxmas.ainovelstudio.pojo.dto.IdeaGenerateRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.IdeaResponse;
 import com.jjxmas.ainovelstudio.pojo.dto.IdeaRewriteRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.IdeaUpdateRequest;
+import com.jjxmas.ainovelstudio.pojo.entity.Project;
+
 import java.util.List;
 
 /**

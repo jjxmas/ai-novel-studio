@@ -22,18 +22,21 @@ import com.jjxmas.ainovelstudio.pojo.entity.Project;
 import com.jjxmas.ainovelstudio.mapper.ProjectMapper;
 import com.jjxmas.ainovelstudio.service.VersionService;
 import java.time.LocalDateTime;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.concurrent.*;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
-@Service
 /**
  * 创意服务实现，负责创意生成、编辑、重写、选中和版本记录。
  */
+@Service
+@Slf4j
 public class IdeaServiceImpl extends ServiceImpl<IdeaMapper, Idea> implements IdeaService {
 
     private final IdeaEvaluationMapper ideaEvaluationMapper;
@@ -41,6 +44,7 @@ public class IdeaServiceImpl extends ServiceImpl<IdeaMapper, Idea> implements Id
     private final GenerationJobService generationJobService;
     private final VersionService versionService;
     private final AiOrchestratorService aiOrchestratorService;
+    private final TransactionTemplate transactionTemplate;
 
     /**
      * 注入创意流程所需的 Mapper、任务服务、版本服务和 AI 编排服务。
@@ -50,25 +54,78 @@ public class IdeaServiceImpl extends ServiceImpl<IdeaMapper, Idea> implements Id
             ProjectMapper projectMapper,
             GenerationJobService generationJobService,
             VersionService versionService,
-            AiOrchestratorService aiOrchestratorService) {
+            AiOrchestratorService aiOrchestratorService,
+            TransactionTemplate transactionTemplate) {
         this.ideaEvaluationMapper = ideaEvaluationMapper;
         this.projectMapper = projectMapper;
         this.generationJobService = generationJobService;
         this.versionService = versionService;
         this.aiOrchestratorService = aiOrchestratorService;
+        this.transactionTemplate = transactionTemplate;
     }
 
     /**
      * 为项目批量生成创意候选方案。
      */
     @Override
-    @Transactional
     public List<IdeaResponse> generateIdeas(IdeaGenerateRequest request) {
         Project project = requireProject(request.getProjectId());
-        int ideaCount = normalizeIdeaCount(request.getIdeaCount());
-        return IntStream.rangeClosed(1, ideaCount)
-                .mapToObj(index -> createGeneratedIdea(project, request, index))
-                .toList();
+        int targetGenerateNum = normalizeIdeaCount(request.getIdeaCount());
+        if (targetGenerateNum <= 0) {
+            return List.of();
+        }
+
+//        try (ExecutorService virtualExecutor = Executors.newVirtualThreadPerTaskExecutor()) {
+//            List<CompletableFuture<IdeaResponse>> futureList = IntStream.range(0, targetGenerateNum)
+//                    .mapToObj(taskIndex -> CompletableFuture.supplyAsync(
+//                            () -> transactionTemplate.execute(status -> createGeneratedIdea(project, request)),
+//                            virtualExecutor
+//                    ).exceptionally(ex -> {
+//                        // 利用下标精准打印第几条大模型生成失败，方便排查接口限流、超时
+//                        log.error("批量生成创意：第{}条大模型调用异常", ex.getCause());
+//                        return null;
+//                    }))
+//                    .toList();
+//
+//            // 过滤失败为空的数据，只返回大模型调用成功的结果
+//            return futureList.stream()
+//                    .map(CompletableFuture::join)
+//                    .filter(Objects::nonNull)
+//                    .toList();
+//        }
+        // 🔴 限制最大并发数量，防止一次性创建几百上千虚拟线程打崩大模型接口
+        // 最大并发20
+        Semaphore semaphore = new Semaphore(20);
+
+        try (ExecutorService virtualExecutor = Executors.newVirtualThreadPerTaskExecutor()) {
+            List<CompletableFuture<IdeaResponse>> futureList = new ArrayList<>();
+
+            for (int taskIndex = 0; taskIndex < targetGenerateNum; taskIndex++) {
+                final int idx = taskIndex;
+                // 提交前先获取许可，控制并发，不会出现许可泄漏
+                semaphore.acquireUninterruptibly();
+                CompletableFuture<IdeaResponse> future = CompletableFuture.supplyAsync(() -> {
+                            try {
+                                return createGeneratedIdea(project, request);
+                            } finally {
+                                semaphore.release();
+                            }
+                        }, virtualExecutor)
+                        .orTimeout(90, TimeUnit.SECONDS)
+                        .exceptionally(ex -> {
+                            Throwable realEx = ex.getCause() != null ? ex.getCause() : ex;
+                            log.error("批量生成创意：第{}条大模型调用异常", idx,realEx);
+                            return null;
+                        });
+
+                futureList.add(future);
+            }
+            CompletableFuture.allOf(futureList.toArray(CompletableFuture[]::new)).join();
+            return futureList.stream()
+                    .map(CompletableFuture::join)
+                    .filter(Objects::nonNull)
+                    .toList();
+        }
     }
 
     /**
@@ -94,7 +151,7 @@ public class IdeaServiceImpl extends ServiceImpl<IdeaMapper, Idea> implements Id
     public IdeaResponse updateIdea(Long ideaId, IdeaUpdateRequest request) {
         Idea idea = requireIdea(ideaId);
         idea.setTitle(request.getTitle())
-                .setSellingPoints(JsonUtils.toJson(request.getSellingPoints() == null ? List.of() : request.getSellingPoints()))
+                .setSellingPoints(request.getSellingPoints() == null ? List.of() : request.getSellingPoints())
                 .setWorldview(request.getWorldview())
                 .setMainConflict(request.getMainConflict())
                 .setEstimatedWordCount(request.getEstimatedWordCount() == null ? idea.getEstimatedWordCount() : request.getEstimatedWordCount())
@@ -201,31 +258,42 @@ public class IdeaServiceImpl extends ServiceImpl<IdeaMapper, Idea> implements Id
     /**
      * 生成单个创意候选并保存评估、任务和版本记录。
      */
-    private IdeaResponse createGeneratedIdea(Project project, IdeaGenerateRequest request, int index) {
+    private IdeaResponse createGeneratedIdea(Project project, IdeaGenerateRequest request) {
         String genreText = String.join(" + ", JsonUtils.toStringList(project.getGenres()));
         Map<String, Object> context = ideaContext(project, request, genreText);
-        AiGenerateResult result = aiOrchestratorService.generateIdea(request.getModelConfigId(), context, index);
-        String content = defaultText(result.getContent(), request.getBriefDescription() + "。方案" + index + " 强调长篇连载节奏和阶段性目标");
-        Idea idea = new Idea()
-                .setProjectId(project.getId())
-                .setTitle(firstTitle(content, "创意方案 " + index + "：" + genreText + "新手长篇"))
-                .setSellingPoints(JsonUtils.toJson(List.of("开局目标清晰", "升级反馈稳定", "长期冲突可扩展")))
-                .setWorldview(extractField(content, "世界观", "以《" + genreText + "》为底色，主角从熟悉环境进入更大的规则体系"))
-                .setMainConflict(extractField(content, "主线冲突", "主角想掌控命运，但既有秩序不断压缩选择空间"))
-                .setEstimatedWordCount(project.getTargetWordCountMax() == null || project.getTargetWordCountMax() == 0
-                        ? 2_000_000
-                        : project.getTargetWordCountMax())
-                .setSummary(content)
+        AiGenerateResult result = aiOrchestratorService.generateIdea(request.getModelConfigId(), context);
+        if(result==null){
+            throw new BusinessException(ErrorCode.NOT_FOUND,"大模型响应为空");
+        }
+        Idea aiIdea = JsonUtils.toObject(result.getContent(), Idea.class);
+        if(aiIdea == null){
+            throw new BusinessException(ErrorCode.PARAMETER_ERROR,"大模型生成内容，json转对象失败");
+        }
+        //String content =result.getContent();
+
+        aiIdea.setProjectId(project.getId())
                 .setStatus("candidate")
                 .setModelConfigId(request.getModelConfigId());
-        save(idea);
+//        Idea idea = new Idea()
+//                .setProjectId(project.getId())
+//                .setTitle(firstTitle(ideaMap.get("title"), genreText + "新手长篇创意方案"))
+//                .setSellingPoints(JsonUtils.toJson(List.of("开局目标清晰", "升级反馈稳定", "长期冲突可扩展")))
+//                .setWorldview(extractField(content, "世界观", "以《" + genreText + "》为底色，主角从熟悉环境进入更大的规则体系"))
+//                .setMainConflict(extractField(content, "主线冲突", "主角想掌控命运，但既有秩序不断压缩选择空间"))
+//                .setEstimatedWordCount(project.getTargetWordCountMax() == null || project.getTargetWordCountMax() == 0
+//                        ? 2_000_000
+//                        : project.getTargetWordCountMax())
+//                .setSummary(content)
+//                .setStatus("candidate")
+//                .setModelConfigId(request.getModelConfigId());
+        save(aiIdea);
 
         IdeaEvaluation evaluation = new IdeaEvaluation()
-                .setIdeaId(idea.getId())
+                .setIdeaId(aiIdea.getId())
                 .setRoundNo(1)
-                .setLongFormPotentialScore(82.0 + index)
-                .setConflictScore(78.0 + index)
-                .setNoveltyScore(70.0 + index)
+                .setLongFormPotentialScore(82.0)
+                .setConflictScore(78.0)
+                .setNoveltyScore(70.0)
                 .setBeginnerFriendlinessScore(86.0)
                 .setPlatformFitScore(80.0)
                 .setRiskLevel("medium")
@@ -236,17 +304,17 @@ public class IdeaServiceImpl extends ServiceImpl<IdeaMapper, Idea> implements Id
                 .setModelConfigId(request.getModelConfigId());
         ideaEvaluationMapper.insert(evaluation);
 
-        Map<String, Object> snapshot = ideaSnapshot(idea);
+        Map<String, Object> snapshot = ideaSnapshot(aiIdea);
         Long jobId = generationJobService.recordFinishedJob(
                 project.getId(),
                 "idea_generation",
                 "idea",
-                idea.getId(),
+                aiIdea.getId(),
                 request.getModelConfigId(),
-                Map.of("context", context, "ideaCount", normalizeIdeaCount(request.getIdeaCount()), "index", index),
+                Map.of("context", context, "ideaCount", 0),
                 Map.of("idea", snapshot, "modelName", defaultText(result.getModelName(), "")));
-        versionService.recordVersion(project.getId(), "idea", idea.getId(), snapshot, "ai_generate", "AI 生成创意", request.getModelConfigId(), jobId);
-        return toResponse(idea, evaluation);
+        versionService.recordVersion(project.getId(), "idea", aiIdea.getId(), snapshot, "ai_generate", "AI 生成创意", request.getModelConfigId(), jobId);
+        return toResponse(aiIdea, evaluation);
     }
 
     /**
@@ -289,7 +357,7 @@ public class IdeaServiceImpl extends ServiceImpl<IdeaMapper, Idea> implements Id
         return IdeaResponse.builder()
                 .id(idea.getId())
                 .title(idea.getTitle())
-                .sellingPoints(JsonUtils.toStringList(idea.getSellingPoints()))
+                .sellingPoints(idea.getSellingPoints())
                 .worldview(idea.getWorldview())
                 .mainConflict(idea.getMainConflict())
                 .estimatedWordCount(idea.getEstimatedWordCount())
@@ -310,7 +378,7 @@ public class IdeaServiceImpl extends ServiceImpl<IdeaMapper, Idea> implements Id
     private Map<String, Object> ideaSnapshot(Idea idea) {
         Map<String, Object> snapshot = new LinkedHashMap<>();
         snapshot.put("title", defaultText(idea.getTitle(), ""));
-        snapshot.put("sellingPoints", JsonUtils.toStringList(idea.getSellingPoints()));
+        snapshot.put("sellingPoints", idea.getSellingPoints());
         snapshot.put("worldview", defaultText(idea.getWorldview(), ""));
         snapshot.put("mainConflict", defaultText(idea.getMainConflict(), ""));
         snapshot.put("estimatedWordCount", idea.getEstimatedWordCount() == null ? 0 : idea.getEstimatedWordCount());
@@ -331,7 +399,8 @@ public class IdeaServiceImpl extends ServiceImpl<IdeaMapper, Idea> implements Id
         context.put("目标字数上限", project.getTargetWordCountMax() == null ? 0 : project.getTargetWordCountMax());
         context.put("单章目标字数", project.getTargetChapterWordCount() == null ? 3000 : project.getTargetChapterWordCount());
         context.put("风格偏好", defaultText(project.getStylePreference(), ""));
-        context.put("作品描述", defaultText(request.getBriefDescription(), project.getProjectBrief()));
+        context.put("作品描述", defaultText( project.getProjectBrief(),""));
+        context.put("补充创意方向",defaultText(request.getBriefDescription(),""));
         return context;
     }
 

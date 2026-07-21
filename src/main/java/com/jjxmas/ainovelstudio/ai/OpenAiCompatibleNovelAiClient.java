@@ -41,7 +41,7 @@ public class OpenAiCompatibleNovelAiClient implements NovelAiClient {
     public AiGenerateResult generate(AiGenerateCommand command) {
         ModelConfig config = resolveConfig(command.getModelConfigId());
         if (config == null || config.getApiKeyCiphertext() == null || config.getApiKeyCiphertext().isBlank()) {
-            return mockNovelAiClient.generate(command);
+            return null;
         }
         try {
             String content = chatClient(command, config)
@@ -51,21 +51,20 @@ public class OpenAiCompatibleNovelAiClient implements NovelAiClient {
                     .call()
                     .content();
             if (content == null || content.isBlank()) {
-                return mockNovelAiClient.generate(command);
+                return null;
             }
             return AiGenerateResult.builder()
                     .success(true)
                     .content(content)
                     .modelName(config.getModelName())
                     .usage(Map.of("springAiChatClient", true))
-                    .rawResponse(content)
                     .build();
         } catch (RuntimeException ex) {
             log.warn("Spring AI ChatClient 调用失败，已回退 mock。modelConfigId={}, modelName={}",
                     config.getId(),
                     config.getModelName(),
                     ex);
-            return mockNovelAiClient.generate(command);
+            return null;
         }
     }
 
@@ -91,14 +90,17 @@ public class OpenAiCompatibleNovelAiClient implements NovelAiClient {
      * 基于模型配置创建 Spring AI ChatClient。
      */
     private ChatClient chatClient(AiGenerateCommand command, ModelConfig config) {
+        //通信层
         OpenAiApi openAiApi = OpenAiApi.builder()
                 .baseUrl(normalizeBaseUrl(config.getBaseUrl()))
                 .apiKey(normalizeApiKey(config.getApiKeyCiphertext()))
                 .build();
+        //推理参数
         OpenAiChatOptions options = OpenAiChatOptions.builder()
                 .model(modelNameOrDefault(config.getModelName()))
-                .temperature(command.getTemperature() == null ? 0.7 : command.getTemperature())
+                .temperature(command.getTemperature() == null ? 0.75 : command.getTemperature())
                 .build();
+        //AI 模型适配器
         OpenAiChatModel chatModel = OpenAiChatModel.builder()
                 .openAiApi(openAiApi)
                 .defaultOptions(options)
@@ -132,7 +134,7 @@ public class OpenAiCompatibleNovelAiClient implements NovelAiClient {
      * 返回模型名，未配置时使用默认模型。
      */
     private String modelNameOrDefault(String value) {
-        return value == null || value.isBlank() ? "gpt-4o-mini" : value;
+        return value == null || value.isBlank() ? "gpt-5.4" : value;
     }
 
     /**

@@ -23,5 +23,4 @@ public class AiGenerateResult {
 
     private Map<String, Object> usage;
 
-    private String rawResponse;
 }

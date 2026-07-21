@@ -1,6 +1,8 @@
 package com.jjxmas.ainovelstudio.ai;
 
 import java.util.Map;
+
+import com.jjxmas.ainovelstudio.prompts.IdeaGenerationPrompts;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -42,12 +44,12 @@ public class AiOrchestratorService {
     /**
      * 生成单个创意候选方案。
      */
-    public AiGenerateResult generateIdea(Long modelConfigId, Map<String, Object> context, int index) {
+    public AiGenerateResult generateIdea(Long modelConfigId, Map<String, Object> context) {
         return novelAiClient.generate(AiGenerateCommand.builder()
                 .modelConfigId(modelConfigId)
                 .taskType(AiTaskType.IDEA_GENERATION)
                 .systemPrompt(promptTemplateService.systemPrompt(AiTaskType.IDEA_GENERATION))
-                .userPrompt(promptTemplateService.ideaGenerationPrompt(context, index))
+                .userPrompt(IdeaGenerationPrompts.ideaGenerationPrompt(context))
                 .context(context)
                 .temperature(0.85)
                 .build());

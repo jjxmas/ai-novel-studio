@@ -58,4 +58,21 @@ public final class JsonUtils {
             return Map.of();
         }
     }
+
+    /**
+     * JSON字符串解析为指定类型对象
+     * @param json json字符串
+     * @param clazz 目标实体Class
+     */
+    public static <T> T toObject(String json, Class<T> clazz) {
+        if (json == null || json.isBlank()) {
+            return null;
+        }
+        try {
+            return OBJECT_MAPPER.readValue(json, clazz);
+        } catch (Exception exception) {
+            return null;
+        }
+    }
+
 }
