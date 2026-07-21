@@ -4,8 +4,14 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
+/**
+ * 跨域配置，允许前端开发环境访问后端接口。
+ */
 @Configuration
 public class CorsConfig implements WebMvcConfigurer {
+    /**
+     * 注册全局 CORS 映射规则。
+     */
     @Override
     public void addCorsMappings(CorsRegistry registry) {
         registry.addMapping("/**") // 匹配所有接口

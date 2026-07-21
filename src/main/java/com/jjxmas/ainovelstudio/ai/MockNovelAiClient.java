@@ -9,6 +9,9 @@ import org.springframework.stereotype.Component;
 @Component
 public class MockNovelAiClient implements NovelAiClient {
 
+    /**
+     * 返回模拟生成结果，保证真实模型不可用时流程仍可继续。
+     */
     @Override
     public AiGenerateResult generate(AiGenerateCommand command) {
         return AiGenerateResult.builder()
@@ -20,6 +23,9 @@ public class MockNovelAiClient implements NovelAiClient {
                 .build();
     }
 
+    /**
+     * 按任务类型生成对应的模拟文本内容。
+     */
     private String mockContent(AiGenerateCommand command) {
         if (command.getTaskType() == AiTaskType.CHAPTER_SUMMARY) {
             return """

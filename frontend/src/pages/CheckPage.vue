@@ -1,9 +1,15 @@
 <script setup lang="ts">
+import { onMounted } from 'vue';
+
 import PageShell from '@/components/PageShell.vue';
 import { useNovelWorkspace } from '@/composables/useNovelWorkspace';
 
 const checks = ['人物状态', '时间线', '地点移动', '设定冲突', '语气风格', 'AI 腔/低质感'];
-const { state, canCheck, createCheck } = useNovelWorkspace();
+const { state, canCheck, loadChapters, createCheck } = useNovelWorkspace();
+
+onMounted(() => {
+  void loadChapters().catch(() => undefined);
+});
 </script>
 
 <template>

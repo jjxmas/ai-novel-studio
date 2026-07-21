@@ -22,6 +22,9 @@ public enum ErrorCode {
 
     private final String message;
 
+    /**
+     * 创建错误码枚举项并保存业务码和默认消息。
+     */
     ErrorCode(int code, String message) {
         this.code = code;
         this.message = message;

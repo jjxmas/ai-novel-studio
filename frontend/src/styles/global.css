@@ -370,6 +370,16 @@ button:disabled,
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  align-items: end;
+}
+
+.toolbar__input {
+  min-width: 220px;
+  padding: 10px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #fff;
+  color: #1f2937;
 }
 
 .form-grid {
@@ -385,6 +395,10 @@ button:disabled,
 
 .field--full {
   grid-column: 1 / -1;
+}
+
+.field--compact {
+  width: 96px;
 }
 
 .field span {

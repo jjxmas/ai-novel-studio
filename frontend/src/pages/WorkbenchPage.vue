@@ -5,7 +5,7 @@ import { RouterLink } from 'vue-router';
 import PageShell from '@/components/PageShell.vue';
 import { useNovelWorkspace } from '@/composables/useNovelWorkspace';
 
-const { state, activeProject, loadProjects, selectProject } = useNovelWorkspace();
+const { state, activeProject, loadProjects, selectProject, loadVersions } = useNovelWorkspace();
 
 const stageLabels = {
   idea: '创意阶段',
@@ -23,7 +23,8 @@ const pendingItems = [
 ];
 
 function activateProject(projectId: number) {
-  void selectProject(projectId).catch(() => undefined);
+  selectProject(projectId);
+  void loadVersions().catch(() => undefined);
 }
 
 onMounted(() => {

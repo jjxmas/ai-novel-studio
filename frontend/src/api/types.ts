@@ -14,6 +14,7 @@ export interface Project {
   projectBrief: string;
   targetWordCountMin: number;
   targetWordCountMax: number;
+  targetChapterWordCount: number;
   platformTarget: string;
   stylePreference: string;
   stage: WorkflowStage;
@@ -34,6 +35,7 @@ export interface ProjectCreateRequest {
   projectBrief: string;
   targetWordCountMin: number;
   targetWordCountMax: number;
+  targetChapterWordCount: number;
   platformTarget: string;
   stylePreference: string;
 }

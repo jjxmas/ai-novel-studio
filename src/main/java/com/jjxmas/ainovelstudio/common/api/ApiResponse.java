@@ -30,10 +30,16 @@ public class ApiResponse<T> {
 
     private String requestId;
 
+    /**
+     * 构造默认成功响应。
+     */
     public static <T> ApiResponse<T> success(T data) {
         return success("成功", data);
     }
 
+    /**
+     * 构造带自定义消息的成功响应。
+     */
     public static <T> ApiResponse<T> success(String message, T data) {
         return ApiResponse.<T>builder()
                 .code(ErrorCode.SUCCESS.getCode())
@@ -45,10 +51,16 @@ public class ApiResponse<T> {
                 .build();
     }
 
+    /**
+     * 按错误码构造失败响应。
+     */
     public static <T> ApiResponse<T> fail(ErrorCode errorCode) {
         return fail(errorCode.getCode(), errorCode.getMessage());
     }
 
+    /**
+     * 按错误码和消息构造失败响应。
+     */
     public static <T> ApiResponse<T> fail(int code, String message) {
         return ApiResponse.<T>builder()
                 .code(code)

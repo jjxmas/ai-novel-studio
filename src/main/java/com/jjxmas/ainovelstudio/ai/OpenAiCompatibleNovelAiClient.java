@@ -1,7 +1,7 @@
 package com.jjxmas.ainovelstudio.ai;
 
-import com.jjxmas.ainovelstudio.module.model.entity.ModelConfig;
-import com.jjxmas.ainovelstudio.module.model.mapper.ModelConfigMapper;
+import com.jjxmas.ainovelstudio.pojo.entity.ModelConfig;
+import com.jjxmas.ainovelstudio.mapper.ModelConfigMapper;
 import java.util.Map;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.openai.OpenAiChatModel;
@@ -24,6 +24,9 @@ public class OpenAiCompatibleNovelAiClient implements NovelAiClient {
     private final ModelConfigMapper modelConfigMapper;
     private final MockNovelAiClient mockNovelAiClient;
 
+    /**
+     * 注入模型配置 Mapper 和 mock 兜底客户端。
+     */
     public OpenAiCompatibleNovelAiClient(
             ModelConfigMapper modelConfigMapper,
             MockNovelAiClient mockNovelAiClient) {
@@ -31,6 +34,9 @@ public class OpenAiCompatibleNovelAiClient implements NovelAiClient {
         this.mockNovelAiClient = mockNovelAiClient;
     }
 
+    /**
+     * 执行 OpenAI-compatible 模型调用，配置无效或调用失败时回退到 mock。
+     */
     @Override
     public AiGenerateResult generate(AiGenerateCommand command) {
         ModelConfig config = resolveConfig(command.getModelConfigId());
@@ -63,6 +69,9 @@ public class OpenAiCompatibleNovelAiClient implements NovelAiClient {
         }
     }
 
+    /**
+     * 根据指定 ID 或默认配置解析可用模型配置。
+     */
     private ModelConfig resolveConfig(Long modelConfigId) {
         if (modelConfigId != null) {
             ModelConfig config = modelConfigMapper.selectById(modelConfigId);
@@ -78,6 +87,9 @@ public class OpenAiCompatibleNovelAiClient implements NovelAiClient {
                 .orElse(null);
     }
 
+    /**
+     * 基于模型配置创建 Spring AI ChatClient。
+     */
     private ChatClient chatClient(AiGenerateCommand command, ModelConfig config) {
         OpenAiApi openAiApi = OpenAiApi.builder()
                 .baseUrl(normalizeBaseUrl(config.getBaseUrl()))
@@ -94,6 +106,9 @@ public class OpenAiCompatibleNovelAiClient implements NovelAiClient {
         return ChatClient.create(chatModel);
     }
 
+    /**
+     * 规范化 API Key，去掉引号和 Bearer 前缀。
+     */
     private String normalizeApiKey(String apiKey) {
         String normalized = apiKey.trim();
         if ((normalized.startsWith("\"") && normalized.endsWith("\""))
@@ -106,14 +121,23 @@ public class OpenAiCompatibleNovelAiClient implements NovelAiClient {
         return normalized;
     }
 
+    /**
+     * 将 null 文本转换为空字符串。
+     */
     private String blankToEmpty(String value) {
         return value == null ? "" : value;
     }
 
+    /**
+     * 返回模型名，未配置时使用默认模型。
+     */
     private String modelNameOrDefault(String value) {
         return value == null || value.isBlank() ? "gpt-4o-mini" : value;
     }
 
+    /**
+     * 规范化 OpenAI-compatible baseUrl 到服务根地址。
+     */
     private String normalizeBaseUrl(String baseUrl) {
         if (baseUrl == null || baseUrl.isBlank()) {
             return "https://api.openai.com";

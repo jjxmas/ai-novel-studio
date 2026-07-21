@@ -5,5 +5,8 @@ package com.jjxmas.ainovelstudio.ai;
  */
 public interface NovelAiClient {
 
+    /**
+     * 执行一次小说创作相关的 AI 生成命令。
+     */
     AiGenerateResult generate(AiGenerateCommand command);
 }

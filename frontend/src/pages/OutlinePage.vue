@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { onMounted, ref, watch } from 'vue';
 
 import PageShell from '@/components/PageShell.vue';
 import { useNovelWorkspace } from '@/composables/useNovelWorkspace';
@@ -15,6 +15,9 @@ const {
   activeProject,
   canGenerateOutline,
   canGenerateChapters,
+  loadSettingLibrary,
+  loadOutline,
+  loadChapters,
   generateOutline,
   generateChapterOutlines,
   updateOutline,
@@ -39,6 +42,17 @@ function saveOutline() {
 async function submitGenerateChapterOutlines() {
   await generateChapterOutlines();
 }
+
+onMounted(() => {
+  void loadSettingLibrary().catch(() => undefined);
+  void loadOutline().catch(() => undefined);
+});
+
+watch(activeLevel, (level) => {
+  if (level === 'chapter') {
+    void loadChapters().catch(() => undefined);
+  }
+});
 </script>
 
 <template>

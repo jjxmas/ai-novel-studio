@@ -14,6 +14,7 @@ const form = reactive({
   projectBrief: '',
   targetWordCountMin: 1200000,
   targetWordCountMax: 2000000,
+  targetChapterWordCount: 3000,
   platformTarget: '番茄',
   stylePreference: '节奏快、冲突清楚、语气自然',
 });
@@ -33,6 +34,7 @@ async function submitProject() {
     projectBrief: form.projectBrief.trim(),
     targetWordCountMin: Number(form.targetWordCountMin),
     targetWordCountMax: Number(form.targetWordCountMax),
+    targetChapterWordCount: Number(form.targetChapterWordCount),
     platformTarget: form.platformTarget.trim(),
     stylePreference: form.stylePreference.trim(),
   });
@@ -68,6 +70,10 @@ async function submitProject() {
           <label class="field">
             <span>最多字数</span>
             <input v-model.number="form.targetWordCountMax" type="number" min="10000" />
+          </label>
+          <label class="field">
+            <span>每章目标字数</span>
+            <input v-model.number="form.targetChapterWordCount" type="number" min="500" step="100" />
           </label>
           <label class="field field--full">
             <span>平台倾向</span>

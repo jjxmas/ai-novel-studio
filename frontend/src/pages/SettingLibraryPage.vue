@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { onMounted } from 'vue';
 import PageShell from '@/components/PageShell.vue';
 import { useNovelWorkspace } from '@/composables/useNovelWorkspace';
 
@@ -6,6 +7,8 @@ const categories = ['人物', '地点', '势力', '世界规则', '能力体系'
 const {
   state,
   canGenerateSetting,
+  loadIdeas,
+  loadSettingLibrary,
   generateSettingLibrary,
   updateSettingLibrary,
   confirmSettingLibrary,
@@ -23,6 +26,11 @@ function saveSettingLibrary() {
     updateSettingLibrary(state.settingLibrary.content);
   }
 }
+
+onMounted(() => {
+  void loadIdeas().catch(() => undefined);
+  void loadSettingLibrary().catch(() => undefined);
+});
 </script>
 
 <template>

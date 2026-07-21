@@ -6,7 +6,7 @@ import lombok.Data;
 import lombok.experimental.Accessors;
 
 /**
- * 基础实体字段。数据库迁移文件落定后，再按表结构补充自动填充策略。
+ * 基础实体，提供所有业务表通用的 ID、创建时间和更新时间字段。
  */
 @Data
 @Accessors(chain = true)

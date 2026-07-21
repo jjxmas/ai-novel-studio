@@ -10,11 +10,17 @@ public class BusinessException extends RuntimeException {
 
     private final ErrorCode errorCode;
 
+    /**
+     * 使用错误码默认消息创建业务异常。
+     */
     public BusinessException(ErrorCode errorCode) {
         super(errorCode.getMessage());
         this.errorCode = errorCode;
     }
 
+    /**
+     * 使用错误码和自定义消息创建业务异常。
+     */
     public BusinessException(ErrorCode errorCode, String message) {
         super(message);
         this.errorCode = errorCode;

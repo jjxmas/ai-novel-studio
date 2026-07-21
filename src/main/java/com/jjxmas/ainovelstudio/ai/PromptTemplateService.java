@@ -3,9 +3,15 @@ package com.jjxmas.ainovelstudio.ai;
 import java.util.Map;
 import org.springframework.stereotype.Service;
 
+/**
+ * 提示词模板服务，集中生成不同 AI 任务的系统提示词和用户提示词。
+ */
 @Service
 public class PromptTemplateService {
 
+    /**
+     * 根据任务类型返回对应的系统提示词。
+     */
     public String systemPrompt(AiTaskType taskType) {
         return switch (taskType) {
             case IDEA_GENERATION -> "你是长篇网文创意策划助手。请生成适合新手持续写作的长篇小说创意，输出中文内容。";
@@ -18,6 +24,9 @@ public class PromptTemplateService {
         };
     }
 
+    /**
+     * 生成创意生成任务的用户提示词。
+     */
     public String ideaGenerationPrompt(Map<String, Object> context, int index) {
         return """
                 请生成第 %d 个长篇小说创意方案。
@@ -33,6 +42,9 @@ public class PromptTemplateService {
                 """.formatted(index, context);
     }
 
+    /**
+     * 生成创意重写任务的用户提示词。
+     */
     public String ideaRewritePrompt(String original, String instruction) {
         return """
                 请根据修改意见重写这个小说创意方案。
@@ -47,6 +59,9 @@ public class PromptTemplateService {
                 """.formatted(original, instruction);
     }
 
+    /**
+     * 生成章节正文生成任务的用户提示词。
+     */
     public String chapterGenerationPrompt(Map<String, Object> context, String title, String outline, String advice) {
         return """
                 请生成一章适合连载网文的正文。
@@ -71,6 +86,9 @@ public class PromptTemplateService {
                 """.formatted(context, title, outline, blankToDefault(advice, "无"));
     }
 
+    /**
+     * 生成章节正文重写任务的用户提示词。
+     */
     public String rewritePrompt(Map<String, Object> context, String content, String instruction) {
         return """
                 请根据修改意见重写下面的章节正文。
@@ -88,6 +106,9 @@ public class PromptTemplateService {
                 """.formatted(context, content, instruction);
     }
 
+    /**
+     * 生成章节摘要任务的用户提示词。
+     */
     public String chapterSummaryPrompt(String title, String content) {
         return """
                 请为以下章节生成单章摘要。
@@ -102,6 +123,9 @@ public class PromptTemplateService {
                 """.formatted(title, content);
     }
 
+    /**
+     * 生成记忆压缩任务的用户提示词。
+     */
     public String compressionPrompt(String sourceType, String content) {
         return """
                 请把以下%s压缩成一条阶段记忆。
@@ -113,6 +137,9 @@ public class PromptTemplateService {
                 """.formatted(sourceType, content);
     }
 
+    /**
+     * 生成全局记忆更新任务的用户提示词。
+     */
     public String globalMemoryPrompt(String oldGlobal, String newMemory) {
         return """
                 请根据旧全局总摘要和新增阶段记忆，更新全局总摘要。
@@ -127,6 +154,9 @@ public class PromptTemplateService {
                 """.formatted(blankToDefault(oldGlobal, "暂无"), newMemory);
     }
 
+    /**
+     * 为空白文本提供默认值。
+     */
     private String blankToDefault(String value, String defaultValue) {
         return value == null || value.isBlank() ? defaultValue : value;
     }

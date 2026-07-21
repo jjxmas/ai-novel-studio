@@ -1,4 +1,4 @@
-import { computed, reactive } from 'vue';
+﻿import { computed, reactive } from 'vue';
 
 import { novelApi } from '@/api/novelApi';
 import type {
@@ -155,26 +155,64 @@ export function useNovelWorkspace() {
     return projects;
   }
 
-  async function selectProject(projectId: number) {
+  function selectProject(projectId: number) {
     state.activeProjectId = projectId;
     resetProjectData();
-    state.lastMessage = '作品已选中，正在加载创作进度。';
-    try {
-      const [ideas, chapters, versions] = await Promise.all([
-        novelApi.listIdeas(projectId).catch(() => []),
-        novelApi.listChapters(projectId).catch(() => []),
-        novelApi.listVersions(projectId).catch(() => []),
-      ]);
-      state.ideas = ideas;
-      state.chapters = chapters;
-      state.versions = versions;
-      state.projectMemory = await novelApi.getProjectMemory(projectId).catch(() => null);
-      state.settingLibrary = await novelApi.getSettingLibrary(projectId).catch(() => null);
-      state.outline = await novelApi.getGlobalOutline(projectId).catch(() => null);
-      state.lastMessage = '当前作品进度已加载。';
-    } catch {
-      state.lastMessage = '作品已选中，部分进度暂未加载。';
+    state.lastMessage = '作品已选中，请从侧边栏进入对应流程。';
+  }
+
+  async function loadIdeas() {
+    if (!state.activeProjectId) {
+      return [];
     }
+    const ideas = await withFallback(novelApi.listIdeas(state.activeProjectId), () => state.ideas, '创意列表已加载', isIdeaList);
+    state.ideas = ideas;
+    return ideas;
+  }
+
+  async function loadSettingLibrary() {
+    if (!state.activeProjectId) {
+      return null;
+    }
+    const setting = await novelApi.getSettingLibrary(state.activeProjectId).catch(() => null);
+    state.settingLibrary = setting;
+    return setting;
+  }
+
+  async function loadOutline() {
+    if (!state.activeProjectId) {
+      return null;
+    }
+    const outline = await novelApi.getGlobalOutline(state.activeProjectId).catch(() => null);
+    state.outline = outline;
+    return outline;
+  }
+
+  async function loadChapters() {
+    if (!state.activeProjectId) {
+      return [];
+    }
+    const chapters = await withFallback(novelApi.listChapters(state.activeProjectId), () => state.chapters, '章节列表已加载', isChapterList);
+    state.chapters = chapters;
+    return chapters;
+  }
+
+  async function loadProjectMemory() {
+    if (!state.activeProjectId) {
+      return null;
+    }
+    const memory = await novelApi.getProjectMemory(state.activeProjectId).catch(() => null);
+    state.projectMemory = memory;
+    return memory;
+  }
+
+  async function loadVersions() {
+    if (!state.activeProjectId) {
+      return [];
+    }
+    const versions = await withFallback(novelApi.listVersions(state.activeProjectId), () => state.versions, '版本记录已加载');
+    state.versions = versions;
+    return versions;
   }
 
   async function createProject(payload: ProjectCreateRequest) {
@@ -274,13 +312,13 @@ export function useNovelWorkspace() {
     return model;
   }
 
-  async function generateIdeas(suggestion = '') {
+  async function generateIdeas(suggestion = '', ideaCount = 3) {
     if (!state.activeProjectId) {
       return [];
     }
     const project = activeProject.value;
     const ideas = await withFallback(
-      novelApi.generateIdeas(state.activeProjectId, suggestion),
+      novelApi.generateIdeas(state.activeProjectId, suggestion, ideaCount),
       () => [
         {
           id: next(),
@@ -344,14 +382,29 @@ export function useNovelWorkspace() {
     addVersion('idea', id, 'rewrite', `根据意见重生成创意：${suggestion || '未填写具体意见'}`);
   }
 
-  async function updateIdea(id: number, content: string) {
+  async function updateIdea(idea: Idea) {
+    const localIdea = state.ideas.find((item) => item.id === idea.id);
+    if (!localIdea) {
+      return;
+    }
+    localIdea.title = idea.title;
+    localIdea.sellingPoint = idea.sellingPoint;
+    localIdea.worldview = idea.worldview;
+    localIdea.mainConflict = idea.mainConflict;
+    localIdea.estimatedWords = idea.estimatedWords;
+    localIdea.content = idea.content;
+    await withFallback(novelApi.updateIdea(localIdea), () => localIdea, '创意修改已保存');
+    addVersion('idea', idea.id, 'edit', '用户直接修改创意内容');
+  }
+
+  async function deleteIdea(id: number) {
     const idea = state.ideas.find((item) => item.id === id);
     if (!idea) {
       return;
     }
-    idea.content = content;
-    await withFallback(novelApi.updateIdea(idea), () => idea, '创意修改已保存');
-    addVersion('idea', id, 'edit', '用户直接修改创意内容');
+    await withFallback(novelApi.deleteIdea(id), () => undefined, '创意已删除');
+    state.ideas = state.ideas.filter((item) => item.id !== id);
+    addVersion('idea', id, 'delete', '删除创意方案');
   }
 
   async function generateSettingLibrary() {
@@ -602,6 +655,12 @@ export function useNovelWorkspace() {
     canCheck,
     loadProjects,
     selectProject,
+    loadIdeas,
+    loadSettingLibrary,
+    loadOutline,
+    loadChapters,
+    loadProjectMemory,
+    loadVersions,
     createProject,
     loadModelConfigs,
     createModelConfig,
@@ -612,6 +671,7 @@ export function useNovelWorkspace() {
     selectIdea,
     rewriteIdea,
     updateIdea,
+    deleteIdea,
     generateSettingLibrary,
     updateSettingLibrary,
     confirmSettingLibrary,

@@ -5,13 +5,22 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * JSON 工具类，封装对象序列化和常用 JSON 反序列化。
+ */
 public final class JsonUtils {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
+    /**
+     * 阻止工具类被实例化。
+     */
     private JsonUtils() {
     }
 
+    /**
+     * 将对象序列化为 JSON 字符串。
+     */
     public static String toJson(Object value) {
         try {
             return OBJECT_MAPPER.writeValueAsString(value);
@@ -20,6 +29,9 @@ public final class JsonUtils {
         }
     }
 
+    /**
+     * 将 JSON 数组字符串解析为字符串列表。
+     */
     public static List<String> toStringList(String json) {
         if (json == null || json.isBlank()) {
             return List.of();
@@ -32,6 +44,9 @@ public final class JsonUtils {
         }
     }
 
+    /**
+     * 将 JSON 对象字符串解析为 Map。
+     */
     public static Map<String, Object> toMap(String json) {
         if (json == null || json.isBlank()) {
             return Map.of();

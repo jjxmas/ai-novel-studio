@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 
 import PageShell from '@/components/PageShell.vue';
 import { useNovelWorkspace } from '@/composables/useNovelWorkspace';
@@ -8,6 +8,8 @@ const chapterBlocks = ['章节列表', '章节大纲', '场景拆分', '正文�
 const {
   state,
   activeProject,
+  loadChapters,
+  loadProjectMemory,
   generateChapterContent,
   updateChapterContent,
 } = useNovelWorkspace();
@@ -54,6 +56,11 @@ function saveActiveChapterContent() {
     updateChapterContent(activeChapter.value.id, activeChapter.value.content);
   }
 }
+
+onMounted(() => {
+  void loadChapters().catch(() => undefined);
+  void loadProjectMemory().catch(() => undefined);
+});
 </script>
 
 <template>

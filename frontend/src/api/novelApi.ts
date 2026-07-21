@@ -43,6 +43,7 @@ function mapProject(data: any): Project {
     projectBrief: data.projectBrief ?? '',
     targetWordCountMin: data.targetWordCountMin ?? 0,
     targetWordCountMax: data.targetWordCountMax ?? 0,
+    targetChapterWordCount: data.targetChapterWordCount ?? 3000,
     platformTarget: data.platformTarget ?? '通用',
     stylePreference: data.stylePreference ?? '',
     stage: data.stage ?? mapStage(data.status),
@@ -156,11 +157,11 @@ export const novelApi = {
   setDefaultModel: (id: number) => post<ModelConfig>(`/model-configs/${id}/default`),
   disableModelConfig: (id: number) => del<ModelConfig>(`/model-configs/${id}`),
 
-  generateIdeas: (projectId: number, suggestion?: string) =>
+  generateIdeas: (projectId: number, suggestion?: string, ideaCount = 3) =>
     post<any[]>(`/projects/${projectId}/ideas/generate`, {
       projectId,
       briefDescription: suggestion || '根据作品简介生成适合长篇连载的创意方案',
-      ideaCount: 3,
+      ideaCount,
     }).then((items) => items.map((item) => mapIdea(item, projectId))),
   listIdeas: (projectId: number) =>
     request<any[]>(`/projects/${projectId}/ideas`).then((items) => items.map((item) => mapIdea(item, projectId))),
@@ -177,6 +178,7 @@ export const novelApi = {
   rewriteIdea: (ideaId: number, suggestion: string) =>
     post<any>(`/ideas/${ideaId}/rewrite`, { instruction: suggestion }).then((item) => mapIdea(item)),
   selectIdea: (ideaId: number) => post<any>(`/ideas/${ideaId}/select`).then((item) => mapIdea(item)),
+  deleteIdea: (ideaId: number) => del<void>(`/ideas/${ideaId}`),
 
   generateSettingLibrary: (projectId: number) =>
     post<any>(`/projects/${projectId}/setting-library/generate`, { projectId }).then(mapSettingLibrary),

@@ -4,16 +4,25 @@ import java.util.Map;
 import org.springframework.stereotype.Service;
 
 @Service
+/**
+ * AI 编排服务，负责把业务任务转换成统一的模型调用命令。
+ */
 public class AiOrchestratorService {
 
     private final NovelAiClient novelAiClient;
     private final PromptTemplateService promptTemplateService;
 
+    /**
+     * 注入模型客户端和提示词模板服务。
+     */
     public AiOrchestratorService(NovelAiClient novelAiClient, PromptTemplateService promptTemplateService) {
         this.novelAiClient = novelAiClient;
         this.promptTemplateService = promptTemplateService;
     }
 
+    /**
+     * 生成章节正文。
+     */
     public AiGenerateResult generateChapter(
             Long modelConfigId,
             Map<String, Object> context,
@@ -30,6 +39,9 @@ public class AiOrchestratorService {
                 .build());
     }
 
+    /**
+     * 生成单个创意候选方案。
+     */
     public AiGenerateResult generateIdea(Long modelConfigId, Map<String, Object> context, int index) {
         return novelAiClient.generate(AiGenerateCommand.builder()
                 .modelConfigId(modelConfigId)
@@ -41,6 +53,9 @@ public class AiOrchestratorService {
                 .build());
     }
 
+    /**
+     * 根据修改指令重写创意。
+     */
     public AiGenerateResult rewriteIdea(Long modelConfigId, String original, String instruction) {
         return novelAiClient.generate(AiGenerateCommand.builder()
                 .modelConfigId(modelConfigId)
@@ -51,6 +66,9 @@ public class AiOrchestratorService {
                 .build());
     }
 
+    /**
+     * 根据上下文和修改指令重写章节正文。
+     */
     public AiGenerateResult rewriteChapter(
             Long modelConfigId,
             Map<String, Object> context,
@@ -66,6 +84,9 @@ public class AiOrchestratorService {
                 .build());
     }
 
+    /**
+     * 为章节正文生成单章摘要。
+     */
     public AiGenerateResult summarizeChapter(Long modelConfigId, String title, String content) {
         return novelAiClient.generate(AiGenerateCommand.builder()
                 .modelConfigId(modelConfigId)
@@ -76,6 +97,9 @@ public class AiOrchestratorService {
                 .build());
     }
 
+    /**
+     * 将多条摘要压缩为分层记忆。
+     */
     public AiGenerateResult compressMemory(Long modelConfigId, String sourceType, String content) {
         return novelAiClient.generate(AiGenerateCommand.builder()
                 .modelConfigId(modelConfigId)
@@ -86,6 +110,9 @@ public class AiOrchestratorService {
                 .build());
     }
 
+    /**
+     * 用新增阶段记忆更新全局记忆。
+     */
     public AiGenerateResult updateGlobalMemory(Long modelConfigId, String oldGlobal, String newMemory) {
         return novelAiClient.generate(AiGenerateCommand.builder()
                 .modelConfigId(modelConfigId)
