@@ -12,6 +12,7 @@ import type {
   ModelConfigRequest,
   Project,
   ProjectCreateRequest,
+  ProjectUpdateRequest,
   ProjectMemory,
   SettingLibrary,
   WorkflowStage,
@@ -231,6 +232,25 @@ export function useNovelWorkspace() {
     resetProjectData();
     addVersion('project', project.id, 'create', `创建作品《${project.title}》`);
     return project;
+  }
+
+  async function updateProject(projectId: number, payload: ProjectUpdateRequest) {
+    const updated = await withFallback(
+      novelApi.updateProject(projectId, payload),
+      () => ({
+        ...payload,
+        id: projectId,
+        stage: activeProject.value?.stage ?? 'idea',
+        updatedAt: nowText(),
+      }),
+      '作品信息已保存',
+    );
+    const index = state.projects.findIndex((item) => item.id === projectId);
+    if (index >= 0) {
+      state.projects[index] = updated;
+    }
+    addVersion('project', projectId, 'edit', '用户修改作品基础信息');
+    return updated;
   }
 
   async function createModelConfig(payload: ModelConfigRequest) {
@@ -662,6 +682,7 @@ export function useNovelWorkspace() {
     loadProjectMemory,
     loadVersions,
     createProject,
+    updateProject,
     loadModelConfigs,
     createModelConfig,
     updateModelConfig,

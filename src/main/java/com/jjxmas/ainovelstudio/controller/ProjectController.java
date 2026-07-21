@@ -8,6 +8,7 @@ import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -38,6 +39,16 @@ public class ProjectController {
     @PostMapping
     public ApiResponse<ProjectResponse> createProject(@Valid @RequestBody ProjectCreateRequest request) {
         return ApiResponse.success("作品创建成功", projectService.createProject(request));
+    }
+
+    /**
+     * 修改小说作品项目的基础信息。
+     */
+    @PatchMapping("/{projectId}")
+    public ApiResponse<ProjectResponse> updateProject(
+            @PathVariable Long projectId,
+            @Valid @RequestBody ProjectCreateRequest request) {
+        return ApiResponse.success("作品修改成功", projectService.updateProject(projectId, request));
     }
 
     /**

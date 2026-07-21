@@ -11,6 +11,7 @@ import type {
   ModelConfigRequest,
   Project,
   ProjectCreateRequest,
+  ProjectUpdateRequest,
   ProjectMemory,
   SettingLibrary,
   StoryMemory,
@@ -150,6 +151,8 @@ function mapExport(data: any, projectId: number, format: ExportRecord['format'],
 export const novelApi = {
   listProjects: async () => (await request<any[]>('/projects')).map(mapProject),
   createProject: async (payload: ProjectCreateRequest) => mapProject(await post('/projects', payload)),
+  updateProject: async (projectId: number, payload: ProjectUpdateRequest) =>
+    mapProject(await patch(`/projects/${projectId}`, payload)),
 
   listModelConfigs: () => request<ModelConfig[]>('/model-configs'),
   createModelConfig: (payload: ModelConfigRequest) => post<ModelConfig>('/model-configs', payload),

@@ -15,6 +15,11 @@ public interface ProjectService {
     ProjectResponse createProject(ProjectCreateRequest request);
 
     /**
+     * 修改指定作品的基础信息。
+     */
+    ProjectResponse updateProject(Long projectId, ProjectCreateRequest request);
+
+    /**
      * 查询指定项目详情。
      */
     ProjectResponse getProject(Long projectId);

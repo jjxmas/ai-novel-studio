@@ -1,11 +1,23 @@
 <script setup lang="ts">
-import { onMounted } from 'vue';
+import { onMounted, reactive, watch } from 'vue';
 import { RouterLink } from 'vue-router';
 
 import PageShell from '@/components/PageShell.vue';
 import { useNovelWorkspace } from '@/composables/useNovelWorkspace';
+import type { ProjectUpdateRequest } from '@/api/types';
 
-const { state, activeProject, loadProjects, selectProject, loadVersions } = useNovelWorkspace();
+const { state, activeProject, loadProjects, selectProject, loadVersions, updateProject } = useNovelWorkspace();
+
+const form = reactive({
+  title: '',
+  genres: '',
+  projectBrief: '',
+  targetWordCountMin: 0,
+  targetWordCountMax: 0,
+  targetChapterWordCount: 3000,
+  platformTarget: '',
+  stylePreference: '',
+});
 
 const stageLabels = {
   idea: '创意阶段',
@@ -24,8 +36,58 @@ const pendingItems = [
 
 function activateProject(projectId: number) {
   selectProject(projectId);
+  fillForm();
   void loadVersions().catch(() => undefined);
 }
+
+function fillForm() {
+  if (!activeProject.value) {
+    form.title = '';
+    form.genres = '';
+    form.projectBrief = '';
+    form.targetWordCountMin = 0;
+    form.targetWordCountMax = 0;
+    form.targetChapterWordCount = 3000;
+    form.platformTarget = '';
+    form.stylePreference = '';
+    return;
+  }
+  form.title = activeProject.value.title;
+  form.genres = activeProject.value.genres.join('、');
+  form.projectBrief = activeProject.value.projectBrief;
+  form.targetWordCountMin = activeProject.value.targetWordCountMin;
+  form.targetWordCountMax = activeProject.value.targetWordCountMax;
+  form.targetChapterWordCount = activeProject.value.targetChapterWordCount;
+  form.platformTarget = activeProject.value.platformTarget;
+  form.stylePreference = activeProject.value.stylePreference;
+}
+
+async function submitProject() {
+  if (!activeProject.value) {
+    return;
+  }
+  const payload: ProjectUpdateRequest = {
+    title: form.title.trim(),
+    genres: form.genres
+      .split(/[、,，\s]+/)
+      .map((item) => item.trim())
+      .filter(Boolean),
+    projectBrief: form.projectBrief.trim(),
+    targetWordCountMin: Number(form.targetWordCountMin),
+    targetWordCountMax: Number(form.targetWordCountMax),
+    targetChapterWordCount: Number(form.targetChapterWordCount),
+    platformTarget: form.platformTarget.trim(),
+    stylePreference: form.stylePreference.trim(),
+  };
+  if (!payload.title || payload.genres.length === 0 || !payload.projectBrief) {
+    state.lastMessage = '作品名、类型和模糊描述不能为空。';
+    return;
+  }
+  await updateProject(activeProject.value.id, payload);
+  void loadVersions().catch(() => undefined);
+}
+
+watch(activeProject, fillForm);
 
 onMounted(() => {
   void loadProjects().catch(() => undefined);
@@ -71,10 +133,48 @@ onMounted(() => {
       </section>
 
       <section class="card">
-        <div class="card__title">待确认事项</div>
-        <ol class="number-list">
-          <li v-for="item in pendingItems" :key="item">{{ item }}</li>
-        </ol>
+        <div class="card__title">作品详情</div>
+        <div v-if="!activeProject" class="empty-state">
+          <div class="empty-state__title">请选择作品</div>
+          <p class="empty-state__description">点击左侧作品后，这里会显示详情和可修改项。</p>
+        </div>
+        <form v-else class="form-grid" @submit.prevent="submitProject">
+          <label class="field">
+            <span>作品名</span>
+            <input v-model="form.title" type="text" />
+          </label>
+          <label class="field">
+            <span>类型</span>
+            <input v-model="form.genres" type="text" placeholder="修仙、都市、悬疑" />
+          </label>
+          <label class="field field--full">
+            <span>模糊描述</span>
+            <textarea v-model="form.projectBrief" rows="5"></textarea>
+          </label>
+          <label class="field">
+            <span>最少字数</span>
+            <input v-model.number="form.targetWordCountMin" type="number" min="0" />
+          </label>
+          <label class="field">
+            <span>最多字数</span>
+            <input v-model.number="form.targetWordCountMax" type="number" min="0" />
+          </label>
+          <label class="field">
+            <span>每章目标字数</span>
+            <input v-model.number="form.targetChapterWordCount" type="number" min="500" step="100" />
+          </label>
+          <label class="field">
+            <span>目标平台</span>
+            <input v-model="form.platformTarget" type="text" />
+          </label>
+          <label class="field field--full">
+            <span>风格偏好</span>
+            <input v-model="form.stylePreference" type="text" placeholder="例如：节奏快、对白自然、少解释" />
+          </label>
+          <div class="field field--full">
+            <button class="toolbar__button" type="submit">保存作品信息</button>
+          </div>
+        </form>
       </section>
     </div>
 
@@ -110,5 +210,12 @@ onMounted(() => {
         </div>
       </section>
     </div>
+
+    <section class="card">
+      <div class="card__title">待确认事项</div>
+      <ol class="number-list">
+        <li v-for="item in pendingItems" :key="item">{{ item }}</li>
+      </ol>
+    </section>
   </PageShell>
 </template>

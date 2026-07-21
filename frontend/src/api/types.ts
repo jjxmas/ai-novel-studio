@@ -40,6 +40,8 @@ export interface ProjectCreateRequest {
   stylePreference: string;
 }
 
+export type ProjectUpdateRequest = ProjectCreateRequest;
+
 export interface ModelConfig {
   id: number;
   provider: string;
