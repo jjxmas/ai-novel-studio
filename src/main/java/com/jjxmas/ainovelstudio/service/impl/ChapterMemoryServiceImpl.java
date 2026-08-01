@@ -8,6 +8,7 @@ import com.jjxmas.ainovelstudio.common.exception.BusinessException;
 import com.jjxmas.ainovelstudio.common.exception.ErrorCode;
 import com.jjxmas.ainovelstudio.common.util.JsonUtils;
 import com.jjxmas.ainovelstudio.pojo.entity.Chapter;
+import com.jjxmas.ainovelstudio.mapper.ChapterMapper;
 import com.jjxmas.ainovelstudio.service.GenerationJobService;
 import com.jjxmas.ainovelstudio.pojo.entity.ChapterSummary;
 import com.jjxmas.ainovelstudio.pojo.entity.StoryMemory;
@@ -42,6 +43,7 @@ public class ChapterMemoryServiceImpl implements ChapterMemoryService {
     private static final int MIDDLE_COMPRESSION_SIZE = 8;
 
     private final ChapterSummaryMapper chapterSummaryMapper;
+    private final ChapterMapper chapterMapper;
     private final StoryMemoryMapper storyMemoryMapper;
     private final ProjectMapper projectMapper;
     private final SettingLibraryMapper settingLibraryMapper;
@@ -55,6 +57,7 @@ public class ChapterMemoryServiceImpl implements ChapterMemoryService {
      */
     public ChapterMemoryServiceImpl(
             ChapterSummaryMapper chapterSummaryMapper,
+            ChapterMapper chapterMapper,
             StoryMemoryMapper storyMemoryMapper,
             ProjectMapper projectMapper,
             SettingLibraryMapper settingLibraryMapper,
@@ -63,6 +66,7 @@ public class ChapterMemoryServiceImpl implements ChapterMemoryService {
             GenerationJobService generationJobService,
             VersionService versionService) {
         this.chapterSummaryMapper = chapterSummaryMapper;
+        this.chapterMapper = chapterMapper;
         this.storyMemoryMapper = storyMemoryMapper;
         this.projectMapper = projectMapper;
         this.settingLibraryMapper = settingLibraryMapper;
@@ -87,17 +91,48 @@ public class ChapterMemoryServiceImpl implements ChapterMemoryService {
         List<StoryMemory> highMemories = currentMemories(chapter.getProjectId(), "high", 8);
         List<StoryMemory> middleMemories = currentMemories(chapter.getProjectId(), "middle", 8);
         List<ChapterSummary> recentSummaries = recentSummaries(chapter.getProjectId());
+        Chapter previousChapter = previousChapter(chapter);
+        ChapterSummary previousSummary = previousChapter == null ? null : chapterSummaryMapper.selectOne(new LambdaQueryWrapper<ChapterSummary>()
+                .eq(ChapterSummary::getChapterId, previousChapter.getId())
+                .last("LIMIT 1"));
         StoryMemory globalMemory = currentGlobalMemory(chapter.getProjectId());
 
         Map<String, Object> context = new LinkedHashMap<>();
         context.put("作品信息", projectContext(project));
         context.put("设定库摘要", settingLibrary == null ? "" : blankToEmpty(settingLibrary.getSummary()));
         context.put("全局大纲", outline == null ? "" : blankToEmpty(outline.getContent()));
+        context.put("当前章节", Map.of(
+                "chapterNo", chapter.getChapterNo() == null ? 0 : chapter.getChapterNo(),
+                "title", blankToEmpty(chapter.getTitle()),
+                "outline", blankToEmpty(chapter.getOutline()),
+                "scenePlan", blankToEmpty(chapter.getScenePlan())));
+        context.put("上一章摘要", previousSummary == null ? "" : blankToEmpty(previousSummary.getSummary()));
+        context.put("上一章结尾片段", previousChapter == null ? "" : tailText(previousChapter.getContent(), 500));
         context.put("全局总摘要", globalMemory == null ? "" : blankToEmpty(globalMemory.getContent()));
         context.put("高层摘要", highMemories.stream().map(this::memoryText).toList());
         context.put("中层摘要", middleMemories.stream().map(this::memoryText).toList());
         context.put("近窗摘要", recentSummaries.stream().map(this::summaryText).toList());
         return context;
+    }
+
+    private Chapter previousChapter(Chapter chapter) {
+        if (chapter.getChapterNo() == null || chapter.getChapterNo() <= 1) {
+            return null;
+        }
+        return chapterMapper.selectOne(new LambdaQueryWrapper<Chapter>()
+                .eq(Chapter::getProjectId, chapter.getProjectId())
+                .lt(Chapter::getChapterNo, chapter.getChapterNo())
+                .isNotNull(Chapter::getContent)
+                .orderByDesc(Chapter::getChapterNo)
+                .last("LIMIT 1"));
+    }
+
+    private String tailText(String content, int maxLength) {
+        String text = blankToEmpty(content);
+        if (text.length() <= maxLength) {
+            return text;
+        }
+        return text.substring(text.length() - maxLength);
     }
 
     /**

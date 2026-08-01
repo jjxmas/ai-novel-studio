@@ -6,7 +6,10 @@ import com.jjxmas.ainovelstudio.pojo.dto.OutlineGenerateRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.OutlineResponse;
 import com.jjxmas.ainovelstudio.pojo.dto.OutlineRewriteRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.OutlineUpdateRequest;
+import com.jjxmas.ainovelstudio.pojo.dto.OutlineWorkflowCreateRequest;
+import com.jjxmas.ainovelstudio.pojo.dto.OutlineWorkflowResponse;
 import com.jjxmas.ainovelstudio.service.OutlineService;
+import com.jjxmas.ainovelstudio.service.OutlineWorkflowService;
 import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -27,6 +30,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class OutlineController {
 
     private final OutlineService outlineService;
+    private final OutlineWorkflowService outlineWorkflowService;
 
     /**
      * 检查大纲模块接口是否可用。
@@ -46,6 +50,29 @@ public class OutlineController {
         request.setProjectId(projectId);
         request.setOutlineLevel("global");
         return ApiResponse.success("全局大纲生成完成", outlineService.generateOutline(request));
+    }
+
+    @PostMapping("/projects/{projectId}/outline-workflows")
+    public ApiResponse<OutlineWorkflowResponse> startOutlineWorkflow(
+            @PathVariable Long projectId,
+            @Valid @RequestBody OutlineWorkflowCreateRequest request) {
+        request.setProjectId(projectId);
+        return ApiResponse.success("大纲流程草案已生成", outlineWorkflowService.startWorkflow(request));
+    }
+
+    @GetMapping("/projects/{projectId}/outline-workflows/latest")
+    public ApiResponse<OutlineWorkflowResponse> getLatestOutlineWorkflow(@PathVariable Long projectId) {
+        return ApiResponse.success(outlineWorkflowService.getLatestWorkflow(projectId));
+    }
+
+    @GetMapping("/outline-workflows/{workflowId}")
+    public ApiResponse<OutlineWorkflowResponse> getOutlineWorkflow(@PathVariable Long workflowId) {
+        return ApiResponse.success(outlineWorkflowService.getWorkflow(workflowId));
+    }
+
+    @PostMapping("/outline-workflows/{workflowId}/commit")
+    public ApiResponse<OutlineResponse> commitOutlineWorkflow(@PathVariable Long workflowId) {
+        return ApiResponse.success("大纲流程已提交", outlineWorkflowService.commitWorkflow(workflowId));
     }
 
     /**

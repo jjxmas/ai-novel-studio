@@ -51,7 +51,54 @@ public class AiOrchestratorService {
                 .systemPrompt(promptTemplateService.systemPrompt(AiTaskType.IDEA_GENERATION))
                 .userPrompt(IdeaGenerationPrompts.ideaGenerationPrompt(context))
                 .context(context)
-                .temperature(0.85)
+                .temperature(0.92)
+                .build());
+    }
+
+    public AiGenerateResult generateSettingBlueprint(Long modelConfigId, Map<String, Object> context) {
+        return novelAiClient.generate(AiGenerateCommand.builder()
+                .modelConfigId(modelConfigId)
+                .taskType(AiTaskType.SETTING_BLUEPRINT)
+                .systemPrompt(promptTemplateService.systemPrompt(AiTaskType.SETTING_BLUEPRINT))
+                .userPrompt(promptTemplateService.settingBlueprintPrompt(context))
+                .context(context)
+                .temperature(0.55)
+                .build());
+    }
+
+    public AiGenerateResult generateSettingDraft(Long modelConfigId, Map<String, Object> context, Object blueprint) {
+        return novelAiClient.generate(AiGenerateCommand.builder()
+                .modelConfigId(modelConfigId)
+                .taskType(AiTaskType.SETTING_DRAFT)
+                .systemPrompt(promptTemplateService.systemPrompt(AiTaskType.SETTING_DRAFT))
+                .userPrompt(promptTemplateService.settingDraftPrompt(context, blueprint))
+                .context(context)
+                .temperature(0.65)
+                .build());
+    }
+
+    public AiGenerateResult generateOutlineWorkflowDraft(Long modelConfigId, Map<String, Object> context) {
+        return novelAiClient.generate(AiGenerateCommand.builder()
+                .modelConfigId(modelConfigId)
+                .taskType(AiTaskType.OUTLINE_WORKFLOW_DRAFT)
+                .systemPrompt(promptTemplateService.systemPrompt(AiTaskType.OUTLINE_WORKFLOW_DRAFT))
+                .userPrompt(promptTemplateService.outlineWorkflowDraftPrompt(context))
+                .context(context)
+                .temperature(0.6)
+                .build());
+    }
+
+    /**
+     * 大模型评估创意。
+     */
+    public AiGenerateResult evaluateIdea(Long modelConfigId, Map<String, Object> context, Map<String, Object> idea) {
+        return novelAiClient.generate(AiGenerateCommand.builder()
+                .modelConfigId(modelConfigId)
+                .taskType(AiTaskType.IDEA_EVALUATION)
+                .systemPrompt(promptTemplateService.systemPrompt(AiTaskType.IDEA_EVALUATION))
+                .userPrompt(IdeaGenerationPrompts.ideaEvaluationPrompt(context, idea))
+                .context(context)
+                .temperature(0.2)
                 .build());
     }
 

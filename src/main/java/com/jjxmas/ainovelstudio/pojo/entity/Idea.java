@@ -19,6 +19,7 @@ import lombok.experimental.Accessors;
 @EqualsAndHashCode(callSuper = true)
 @TableName(value ="ideas",autoResultMap = true)
 public class Idea extends BaseEntity {
+   // private Long id;
 
     private Long projectId;
 

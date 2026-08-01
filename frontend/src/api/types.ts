@@ -76,13 +76,314 @@ export interface Idea {
   score: number;
   selected: boolean;
   content: string;
+  longFormPotentialScore?: number | null;
+  conflictScore?: number | null;
+  noveltyScore?: number | null;
+  beginnerFriendlinessScore?: number | null;
+  platformFitScore?: number | null;
+  riskLevel?: string | null;
+  strengths?: string[];
+  risks?: string[];
+  suggestions?: string[];
+  overallComment?: string;
+}
+
+export interface IdeaGenerateRequest {
+  projectId: number;
+  modelType: '创意生成';
+  briefDescription: string;
+  ideaCount: number;
 }
 
 export interface SettingLibrary {
   id: number;
   projectId: number;
-  content: string;
+  sourceIdeaId?: number | null;
+  summary: string;
+  overview: string;
+  genreTemplate?: string | null;
+  status?: string;
   confirmed: boolean;
+  confirmedAt?: string | null;
+  characterCount: number;
+  organizationCount: number;
+  locationCount: number;
+  itemCount: number;
+  ruleCount: number;
+  relationCount: number;
+  eventCount: number;
+  stateRecordCount: number;
+  completenessScore: number;
+}
+
+export interface SettingWorkflow {
+  id: number;
+  projectId: number;
+  sourceIdeaId: number;
+  status: 'blueprint_ready' | 'draft_ready' | 'check_failed' | 'committed' | string;
+  blueprint: Record<string, unknown>;
+  draft: Record<string, unknown>;
+  checks: {
+    passed?: boolean;
+    issues?: string[];
+  };
+  blueprintConfirmedAt?: string | null;
+  committedAt?: string | null;
+}
+
+export interface SettingModuleSummary {
+  key: 'characters' | 'organizations' | 'locations' | 'items' | 'rules' | 'relations' | 'events' | 'states';
+  label: string;
+  count: number;
+  description: string;
+}
+
+export interface StoryCharacter {
+  id: number;
+  projectId: number;
+  name: string;
+  aliases: string[];
+  roleType: string;
+  narrativeRole: string;
+  identity: string;
+  publicIdentity: string;
+  gender: string;
+  ageText: string;
+  personality: string;
+  motivation: string;
+  background: string;
+  coreGoal: string;
+  innerNeed: string;
+  coreFlaw: string;
+  bottomLine: string;
+  skillsSummary: string;
+  secretNotes: string;
+  relationshipSummary: string;
+  importance: number;
+  status: string;
+  firstAppearedChapterId?: number | null;
+  notes?: string;
+}
+
+export interface StoryCharacterRequest {
+  name: string;
+  aliases: string[];
+  roleType: string;
+  narrativeRole: string;
+  identity: string;
+  publicIdentity: string;
+  gender?: string;
+  ageText?: string;
+  personality: string;
+  motivation?: string;
+  background: string;
+  coreGoal: string;
+  innerNeed: string;
+  coreFlaw: string;
+  bottomLine: string;
+  skillsSummary: string;
+  secretNotes: string;
+  relationshipSummary?: string;
+  importance: number;
+  status: string;
+  firstAppearedChapterId?: number | null;
+  notes?: string;
+}
+
+export interface Organization {
+  id: number;
+  projectId: number;
+  name: string;
+  organizationType: string;
+  publicMission: string;
+  realGoal: string;
+  controlledResources: string;
+  powerScope: string;
+  baseLocationId?: number | null;
+  entryRules: string;
+  status: string;
+  notes: string;
+}
+
+export interface OrganizationRequest {
+  name: string;
+  organizationType: string;
+  publicMission: string;
+  realGoal: string;
+  controlledResources: string;
+  powerScope: string;
+  baseLocationId?: number | null;
+  entryRules: string;
+  status: string;
+  notes: string;
+}
+
+export interface StoryLocation {
+  id: number;
+  projectId: number;
+  name: string;
+  locationType: string;
+  parentLocationId?: number | null;
+  description: string;
+  keyFeatures: string;
+  entryConditions: string;
+  availableResources: string;
+  controllingOrgId?: number | null;
+  riskLevel: string;
+  rules: string;
+  notes: string;
+}
+
+export interface StoryLocationRequest {
+  name: string;
+  locationType: string;
+  parentLocationId?: number | null;
+  description: string;
+  keyFeatures: string;
+  entryConditions: string;
+  availableResources: string;
+  controllingOrgId?: number | null;
+  riskLevel: string;
+  rules: string;
+  notes: string;
+}
+
+export interface StoryItem {
+  id: number;
+  projectId: number;
+  name: string;
+  itemType: string;
+  description: string;
+  usageRules: string;
+  limitations: string;
+  rarity: string;
+  ownerCharacterId?: number | null;
+  ownerOrgId?: number | null;
+  status: string;
+  notes: string;
+}
+
+export interface StoryItemRequest {
+  name: string;
+  itemType: string;
+  description: string;
+  usageRules: string;
+  limitations: string;
+  rarity: string;
+  ownerCharacterId?: number | null;
+  ownerOrgId?: number | null;
+  status: string;
+  notes: string;
+}
+
+export interface WorldRule {
+  id: number;
+  projectId: number;
+  name: string;
+  ruleType: string;
+  description: string;
+  triggerCondition: string;
+  effectResult: string;
+  limitations: string;
+  cost: string;
+  exceptions: string;
+  visibilityLevel: string;
+  importance: number;
+  examples: string;
+  notes: string;
+}
+
+export interface WorldRuleRequest {
+  name: string;
+  ruleType: string;
+  description: string;
+  triggerCondition: string;
+  effectResult: string;
+  limitations: string;
+  cost: string;
+  exceptions: string;
+  visibilityLevel: string;
+  importance: number;
+  examples: string;
+  notes: string;
+}
+
+export interface EntityRelation {
+  id: number;
+  projectId: number;
+  sourceType: string;
+  sourceId: number;
+  targetType: string;
+  targetId: number;
+  relationType: string;
+  relationStatus: string;
+  strengthValue?: number | null;
+  visibilityLevel: string;
+  note: string;
+  startEventId?: number | null;
+  endEventId?: number | null;
+}
+
+export interface EntityRelationRequest {
+  sourceType: string;
+  sourceId: number | null;
+  targetType: string;
+  targetId: number | null;
+  relationType: string;
+  relationStatus: string;
+  strengthValue?: number | null;
+  visibilityLevel: string;
+  note: string;
+  startEventId?: number | null;
+  endEventId?: number | null;
+}
+
+export interface StoryEvent {
+  id: number;
+  projectId: number;
+  name: string;
+  eventType: string;
+  description: string;
+  eventTimeText: string;
+  locationId?: number | null;
+  chapterId?: number | null;
+  planned: boolean;
+  importance: number;
+}
+
+export interface StoryEventRequest {
+  name: string;
+  eventType: string;
+  description: string;
+  eventTimeText: string;
+  locationId?: number | null;
+  chapterId?: number | null;
+  planned: boolean;
+  importance: number;
+}
+
+export interface EntityStateRecord {
+  id: number;
+  projectId: number;
+  entityType: string;
+  entityId: number;
+  stateType: string;
+  oldValue?: Record<string, unknown> | null;
+  newValue: Record<string, unknown>;
+  eventId?: number | null;
+  chapterId?: number | null;
+  effectiveAt?: string | null;
+}
+
+export interface EntityStateRecordRequest {
+  entityType: string;
+  entityId: number | null;
+  stateType: string;
+  oldValue?: Record<string, unknown> | null;
+  newValue: Record<string, unknown> | null;
+  eventId?: number | null;
+  chapterId?: number | null;
+  effectiveAt?: string | null;
 }
 
 export interface GlobalOutline {
@@ -90,6 +391,27 @@ export interface GlobalOutline {
   projectId: number;
   content: string;
   confirmed: boolean;
+  volumes?: Array<{
+    id: number;
+    volumeNo: number;
+    title: string;
+    summary: string;
+    goal: string;
+    estimatedWordCount: number;
+  }>;
+}
+
+export interface OutlineWorkflow {
+  id: number;
+  projectId: number;
+  settingLibraryId: number;
+  status: 'draft_ready' | 'check_failed' | 'committed' | string;
+  draft: Record<string, unknown>;
+  checks: {
+    passed?: boolean;
+    issues?: string[];
+  };
+  committedAt?: string | null;
 }
 
 export interface Chapter {

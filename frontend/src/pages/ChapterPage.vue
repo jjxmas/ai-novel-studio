@@ -12,6 +12,7 @@ const {
   loadProjectMemory,
   generateChapterContent,
   updateChapterContent,
+  createCheck,
 } = useNovelWorkspace();
 
 const activeChapterId = ref<number | null>(null);
@@ -42,6 +43,10 @@ async function submitGenerateContent() {
   }
   await generateChapterContent(activeChapter.value.id, rewriteSuggestion.value);
   rewriteSuggestion.value = '';
+}
+
+async function submitCheck() {
+  await createCheck();
 }
 
 function editActiveChapterContent(event: Event) {
@@ -141,6 +146,15 @@ onMounted(() => {
             <button class="toolbar__button" type="button" @click="submitGenerateContent">
               {{ activeChapter.content ? '按意见重生成' : '生成正文' }}
             </button>
+            <button class="toolbar__button toolbar__button--ghost" type="button" :disabled="!activeChapter.content" @click="submitCheck">
+              创建检查
+            </button>
+          </div>
+          <div v-if="state.checks.length" class="hint-box">
+            <strong>检查结果</strong>
+            <p v-for="check in state.checks.slice(0, 3)" :key="check.id" class="helper-text">
+              {{ check.type }}：{{ check.summary }}
+            </p>
           </div>
           <div class="hint-box">
             <strong>章节记忆</strong>

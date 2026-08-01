@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 
 import PageShell from '@/components/PageShell.vue';
+import type { Idea } from '@/api/types';
 import { useNovelWorkspace } from '@/composables/useNovelWorkspace';
 
 const {
@@ -28,6 +29,19 @@ const activeIdea = computed(() => {
   return state.ideas.find((idea) => idea.id === activeIdeaId.value) ?? fallback;
 });
 
+const evaluationMetrics = computed(() => {
+  if (!activeIdea.value) {
+    return [];
+  }
+  return [
+    { label: '长篇潜力', value: activeIdea.value.longFormPotentialScore },
+    { label: '冲突强度', value: activeIdea.value.conflictScore },
+    { label: '新意程度', value: activeIdea.value.noveltyScore },
+    { label: '新手友好', value: activeIdea.value.beginnerFriendlinessScore },
+    { label: '平台适配', value: activeIdea.value.platformFitScore },
+  ];
+});
+
 watch(
   () => state.ideas.map((idea) => idea.id).join(','),
   () => {
@@ -40,9 +54,11 @@ watch(
 );
 
 onMounted(() => {
-  void loadIdeas().then((ideas) => {
-    activeIdeaId.value = ideas[0]?.id ?? null;
-  }).catch(() => undefined);
+  void loadIdeas()
+    .then((ideas) => {
+      activeIdeaId.value = ideas[0]?.id ?? null;
+    })
+    .catch(() => undefined);
 });
 
 async function submitGenerate() {
@@ -66,12 +82,43 @@ async function submitDelete() {
   await deleteIdea(deletedId);
   activeIdeaId.value = state.ideas[0]?.id ?? null;
 }
+
+function hasEvaluation(idea: Idea | null) {
+  if (!idea) {
+    return false;
+  }
+  return Boolean(
+    idea.longFormPotentialScore != null
+    || idea.conflictScore != null
+    || idea.noveltyScore != null
+    || idea.beginnerFriendlinessScore != null
+    || idea.platformFitScore != null
+    || idea.overallComment
+    || idea.strengths?.length
+    || idea.risks?.length
+    || idea.suggestions?.length,
+  );
+}
+
+function formatRiskLevel(riskLevel?: string | null) {
+  if (riskLevel === 'high') {
+    return '高风险';
+  }
+  if (riskLevel === 'low') {
+    return '低风险';
+  }
+  return '中风险';
+}
+
+function riskBadgeClass(riskLevel?: string | null) {
+  return riskLevel === 'high' ? 'badge--warn' : '';
+}
 </script>
 
 <template>
   <PageShell
     title="创意页"
-    description="生成多个创意，左侧选择方案，右侧查看和编辑详情。"
+    description="生成多个创意方案，在左侧比较候选项，在右侧同时查看创意内容与 AI 评价。"
   >
     <template #actions>
       <div class="toolbar">
@@ -101,7 +148,7 @@ async function submitDelete() {
         <div class="card__title">创意列表</div>
         <div v-if="state.ideas.length === 0" class="empty-state">
           <div class="empty-state__title">暂无创意</div>
-          <p class="empty-state__description">点击生成创意后，方案标题会显示在这里。</p>
+          <p class="empty-state__description">点击生成创意后，候选方案会显示在这里。</p>
         </div>
         <div v-else class="stack">
           <article
@@ -113,11 +160,16 @@ async function submitDelete() {
           >
             <div>
               <div class="list-item__title">{{ idea.title }}</div>
-              <div class="list-item__text">{{ idea.estimatedWords }} · {{ idea.score }} 分</div>
+              <div class="list-item__text">{{ idea.estimatedWords }} · 长篇潜力 {{ idea.score }} 分</div>
             </div>
-            <span class="badge" :class="{ 'badge--ok': idea.selected }">
-              {{ idea.selected ? '已选定' : '候选' }}
-            </span>
+            <div class="idea-list-meta">
+              <span v-if="idea.riskLevel" class="badge" :class="riskBadgeClass(idea.riskLevel)">
+                {{ formatRiskLevel(idea.riskLevel) }}
+              </span>
+              <span class="badge" :class="{ 'badge--ok': idea.selected }">
+                {{ idea.selected ? '已选定' : '候选' }}
+              </span>
+            </div>
           </article>
         </div>
       </section>
@@ -126,7 +178,7 @@ async function submitDelete() {
         <div class="card__title">创意详情</div>
         <div v-if="!activeIdea" class="empty-state">
           <div class="empty-state__title">尚未选择创意</div>
-          <p class="empty-state__description">从左侧列表选择一个创意查看详情。</p>
+          <p class="empty-state__description">从左侧列表选择一个创意，即可查看内容和评价。</p>
         </div>
         <div v-else class="stack">
           <div class="card__row">
@@ -134,21 +186,72 @@ async function submitDelete() {
               <h3 class="section-title">{{ activeIdea.title }}</h3>
               <p class="helper-text">当前选定：{{ selectedIdea?.title ?? '尚未选定' }}</p>
             </div>
-            <span class="badge" :class="{ 'badge--ok': activeIdea.selected }">
-              {{ activeIdea.selected ? '已选定' : `${activeIdea.score} 分` }}
-            </span>
+            <div class="badge-group">
+              <span v-if="activeIdea.riskLevel" class="badge" :class="riskBadgeClass(activeIdea.riskLevel)">
+                {{ formatRiskLevel(activeIdea.riskLevel) }}
+              </span>
+              <span class="badge" :class="{ 'badge--ok': activeIdea.selected }">
+                {{ activeIdea.selected ? '已选定' : `${activeIdea.score} 分` }}
+              </span>
+            </div>
           </div>
 
-          <div class="metrics">
+          <div class="metrics metrics--stacked">
             <div class="metric">
               <div class="metric__label">字数预估</div>
               <div class="metric__value">{{ activeIdea.estimatedWords }}</div>
             </div>
             <div class="metric">
               <div class="metric__label">卖点</div>
-              <div class="metric__value">{{ activeIdea.sellingPoint || '待补充' }}</div>
+              <div class="metric__value metric__value--text">{{ activeIdea.sellingPoint || '待补充' }}</div>
             </div>
           </div>
+
+          <section class="stack">
+            <div class="section-title">AI 评价</div>
+            <div v-if="hasEvaluation(activeIdea)" class="stack">
+              <div class="hint-box hint-box--accent">
+                {{ activeIdea.overallComment || '当前创意已生成评分，但暂时没有总体评价文本。' }}
+              </div>
+
+              <div class="metrics idea-score-grid">
+                <div v-for="metric in evaluationMetrics" :key="metric.label" class="metric">
+                  <div class="metric__label">{{ metric.label }}</div>
+                  <div class="metric__value">{{ metric.value ?? '--' }}</div>
+                </div>
+              </div>
+
+              <div class="grid grid--three">
+                <section class="info-panel">
+                  <h4 class="info-panel__title">优势</h4>
+                  <ul v-if="activeIdea.strengths?.length" class="plain-list">
+                    <li v-for="item in activeIdea.strengths" :key="item">{{ item }}</li>
+                  </ul>
+                  <p v-else class="helper-text">暂无优势分析。</p>
+                </section>
+
+                <section class="info-panel">
+                  <h4 class="info-panel__title">风险</h4>
+                  <ul v-if="activeIdea.risks?.length" class="plain-list">
+                    <li v-for="item in activeIdea.risks" :key="item">{{ item }}</li>
+                  </ul>
+                  <p v-else class="helper-text">暂无风险提示。</p>
+                </section>
+
+                <section class="info-panel">
+                  <h4 class="info-panel__title">建议</h4>
+                  <ul v-if="activeIdea.suggestions?.length" class="plain-list">
+                    <li v-for="item in activeIdea.suggestions" :key="item">{{ item }}</li>
+                  </ul>
+                  <p v-else class="helper-text">暂无修改建议。</p>
+                </section>
+              </div>
+            </div>
+            <div v-else class="empty-state">
+              <div class="empty-state__title">暂无评价数据</div>
+              <p class="empty-state__description">这个创意还没有可展示的 AI 评价内容。</p>
+            </div>
+          </section>
 
           <label class="field">
             <span>世界观</span>
@@ -164,7 +267,11 @@ async function submitDelete() {
           </label>
           <label class="field">
             <span>修改意见</span>
-            <textarea v-model="rewriteSuggestion" rows="3" placeholder="例如：降低设定复杂度，加强主角现实目标"></textarea>
+            <textarea
+              v-model="rewriteSuggestion"
+              rows="3"
+              placeholder="例如：降低设定复杂度，加强主角现实目标"
+            ></textarea>
           </label>
 
           <div class="toolbar">

@@ -1,7 +1,11 @@
 package com.jjxmas.ainovelstudio.pojo.entity;
 
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import java.time.LocalDateTime;
+import java.util.List;
+
+import com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler;
 import lombok.Data;
 import lombok.experimental.Accessors;
 
@@ -10,7 +14,7 @@ import lombok.experimental.Accessors;
  */
 @Data
 @Accessors(chain = true)
-@TableName("idea_evaluations")
+@TableName(value ="idea_evaluations",autoResultMap = true)
 public class IdeaEvaluation {
 
     private Long id;
@@ -31,11 +35,14 @@ public class IdeaEvaluation {
 
     private String riskLevel;
 
-    private String strengths;
+    @TableField(typeHandler = JacksonTypeHandler.class)
+    private List<String> strengths;
 
-    private String risks;
+    @TableField(typeHandler = JacksonTypeHandler.class)
+    private List<String> risks;
 
-    private String suggestions;
+    @TableField(typeHandler = JacksonTypeHandler.class)
+    private List<String> suggestions;
 
     private String overallComment;
 

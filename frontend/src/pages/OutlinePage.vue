@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 
 import PageShell from '@/components/PageShell.vue';
 import { useNovelWorkspace } from '@/composables/useNovelWorkspace';
@@ -17,14 +17,58 @@ const {
   canGenerateChapters,
   loadSettingLibrary,
   loadOutline,
+  loadLatestOutlineWorkflow,
   loadChapters,
-  generateOutline,
+  startOutlineWorkflow,
+  commitOutlineWorkflow,
   generateChapterOutlines,
   updateOutline,
   confirmOutline,
 } = useNovelWorkspace();
 
 const activeLevel = ref('global');
+const workflowBusy = ref(false);
+
+const outlineWorkflowStatusText = computed(() => {
+  switch (state.outlineWorkflow?.status) {
+    case 'draft_ready':
+      return '草案待提交';
+    case 'check_failed':
+      return '检查未通过';
+    case 'committed':
+      return '已提交';
+    default:
+      return '未启动';
+  }
+});
+
+const outlineWorkflowGlobalText = computed(() => {
+  const globalOutline = state.outlineWorkflow?.draft?.globalOutline as { content?: string } | undefined;
+  return globalOutline?.content || state.outline?.content || '暂无全局大纲草案';
+});
+
+const outlineWorkflowVolumes = computed<Array<Record<string, any>>>(() => {
+  const volumes = state.outlineWorkflow?.draft?.volumes;
+  if (Array.isArray(volumes)) {
+    return volumes as Array<Record<string, any>>;
+  }
+  return state.outline?.volumes ?? [];
+});
+
+const outlineWorkflowArcs = computed<Array<Record<string, any>>>(() => {
+  const arcs = state.outlineWorkflow?.draft?.arcs;
+  return Array.isArray(arcs) ? arcs as Array<Record<string, any>> : [];
+});
+
+const outlineWorkflowChapters = computed<Array<Record<string, any>>>(() => {
+  const chapters = state.outlineWorkflow?.draft?.chapters;
+  return Array.isArray(chapters) ? chapters as Array<Record<string, any>> : [];
+});
+
+const outlineWorkflowIssueText = computed(() => {
+  const issues = state.outlineWorkflow?.checks?.issues ?? [];
+  return issues.length ? issues.join('；') : '暂无阻断问题';
+});
 
 function editOutline(event: Event) {
   if (!state.outline) {
@@ -43,9 +87,27 @@ async function submitGenerateChapterOutlines() {
   await generateChapterOutlines();
 }
 
+async function withWorkflow(action: () => Promise<unknown>) {
+  workflowBusy.value = true;
+  try {
+    await action();
+  } finally {
+    workflowBusy.value = false;
+  }
+}
+
+function startWorkflow() {
+  void withWorkflow(startOutlineWorkflow);
+}
+
+function commitWorkflow() {
+  void withWorkflow(commitOutlineWorkflow);
+}
+
 onMounted(() => {
   void loadSettingLibrary().catch(() => undefined);
   void loadOutline().catch(() => undefined);
+  void loadLatestOutlineWorkflow().catch(() => undefined);
 });
 
 watch(activeLevel, (level) => {
@@ -63,16 +125,7 @@ watch(activeLevel, (level) => {
     <template #actions>
       <div class="toolbar">
         <button
-          v-if="activeLevel === 'global'"
-          class="toolbar__button"
-          type="button"
-          :disabled="!activeProject || !canGenerateOutline"
-          @click="generateOutline"
-        >
-          生成全局大纲
-        </button>
-        <button
-          v-else-if="activeLevel === 'chapter'"
+          v-if="activeLevel === 'chapter'"
           class="toolbar__button"
           type="button"
           :disabled="!activeProject || !canGenerateChapters"
@@ -106,14 +159,21 @@ watch(activeLevel, (level) => {
             <span
               class="badge"
               :class="{
-                'badge--ok': item.key === 'global' && state.outline?.confirmed,
-                'badge--warn': item.key === 'volume' || item.key === 'arc',
+                'badge--ok':
+                  (item.key === 'global' && state.outline?.confirmed)
+                  || (item.key === 'volume' && outlineWorkflowVolumes.length > 0)
+                  || (item.key === 'arc' && outlineWorkflowArcs.length > 0),
+                'badge--warn': (item.key === 'volume' && outlineWorkflowVolumes.length === 0) || (item.key === 'arc' && outlineWorkflowArcs.length === 0),
               }"
             >
               {{
                 item.key === 'global' && state.outline?.confirmed
                   ? '已确认'
-                  : item.key === 'chapter' && state.chapters.length > 0
+                  : item.key === 'volume' && outlineWorkflowVolumes.length > 0
+                    ? '已生成'
+                    : item.key === 'arc' && outlineWorkflowArcs.length > 0
+                      ? '已生成'
+                      : item.key === 'chapter' && state.chapters.length > 0
                     ? '已生成'
                     : item.key === 'volume' || item.key === 'arc'
                       ? '预留'
@@ -125,6 +185,71 @@ watch(activeLevel, (level) => {
       </section>
 
       <section v-if="activeLevel === 'global'" class="card">
+        <div class="stack">
+          <div class="card__row">
+            <div>
+              <h3 class="section-title">大纲生成流程</h3>
+              <p class="helper-text">基于已确认设定库生成全局大纲、分卷大纲、第一卷剧情单元和首批章节大纲。</p>
+            </div>
+            <span class="badge meta-pill--soft">{{ outlineWorkflowStatusText }}</span>
+          </div>
+
+          <div class="toolbar">
+            <button
+              class="toolbar__button"
+              type="button"
+              :disabled="!activeProject || !canGenerateOutline || workflowBusy"
+              @click="startWorkflow"
+            >
+              生成大纲草案
+            </button>
+            <button
+              class="toolbar__button toolbar__button--ghost"
+              type="button"
+              :disabled="workflowBusy || state.outlineWorkflow?.status !== 'draft_ready'"
+              @click="commitWorkflow"
+            >
+              提交草案到大纲
+            </button>
+          </div>
+
+          <div class="grid grid--two">
+            <div class="metric">
+              <div class="metric__label">全局主线</div>
+              <pre class="workflow-preview workflow-preview--detail">{{ outlineWorkflowGlobalText }}</pre>
+            </div>
+            <div class="metric">
+              <div class="metric__label">检查结果</div>
+              <p class="helper-text">{{ outlineWorkflowIssueText }}</p>
+            </div>
+          </div>
+
+          <div class="grid grid--three">
+            <div class="metric">
+              <div class="metric__label">分卷</div>
+              <div class="metric__value">{{ outlineWorkflowVolumes.length }}</div>
+            </div>
+            <div class="metric">
+              <div class="metric__label">剧情单元</div>
+              <div class="metric__value">{{ outlineWorkflowArcs.length }}</div>
+            </div>
+            <div class="metric">
+              <div class="metric__label">首批章节</div>
+              <div class="metric__value">{{ outlineWorkflowChapters.length }}</div>
+            </div>
+          </div>
+
+          <div v-if="outlineWorkflowChapters.length" class="stack">
+            <article v-for="chapter in outlineWorkflowChapters" :key="String(chapter.chapterNo)" class="list-item">
+              <div>
+                <div class="list-item__title">第{{ chapter.chapterNo }}章 {{ chapter.title }}</div>
+                <div class="list-item__text">{{ chapter.outline }}</div>
+              </div>
+              <span class="badge">草案</span>
+            </article>
+          </div>
+        </div>
+
         <div class="card__title">全局大纲</div>
         <div v-if="!state.outline" class="empty-state">
           <div class="empty-state__title">尚未生成全局大纲</div>
@@ -166,11 +291,40 @@ watch(activeLevel, (level) => {
         <p class="helper-text">{{ state.lastMessage }}</p>
       </section>
 
-      <section v-else class="card">
-        <div class="card__title">{{ outlineLevels.find((item) => item.key === activeLevel)?.title }}</div>
-        <div class="empty-state">
-          <div class="empty-state__title">后续版本扩展</div>
-          <p class="empty-state__description">第二版先跑通全局大纲和章节大纲，分卷与剧情单元会在后续版本细化。</p>
+      <section v-else-if="activeLevel === 'volume'" class="card">
+        <div class="card__title">分卷大纲</div>
+        <div v-if="outlineWorkflowVolumes.length === 0" class="empty-state">
+          <div class="empty-state__title">尚未生成分卷大纲</div>
+          <p class="empty-state__description">请先生成或提交大纲草案。</p>
+        </div>
+        <div v-else class="stack">
+          <article v-for="volume in outlineWorkflowVolumes" :key="String(volume.volumeNo)" class="list-item">
+            <div>
+              <div class="list-item__title">第{{ volume.volumeNo }}卷：{{ volume.title }}</div>
+              <div class="list-item__text">{{ volume.summary }}</div>
+              <div class="list-item__text">目标：{{ volume.goal }}</div>
+            </div>
+            <span class="badge">{{ volume.estimatedWordCount || 0 }}字</span>
+          </article>
+        </div>
+      </section>
+
+      <section v-else-if="activeLevel === 'arc'" class="card">
+        <div class="card__title">剧情单元</div>
+        <div v-if="outlineWorkflowArcs.length === 0" class="empty-state">
+          <div class="empty-state__title">尚未生成剧情单元</div>
+          <p class="empty-state__description">第一版会先展开第一卷剧情单元。</p>
+        </div>
+        <div v-else class="stack">
+          <article v-for="arc in outlineWorkflowArcs" :key="`${arc.volumeNo}-${arc.arcNo}`" class="list-item">
+            <div>
+              <div class="list-item__title">第{{ arc.volumeNo }}卷 / 单元{{ arc.arcNo }}：{{ arc.title }}</div>
+              <div class="list-item__text">{{ arc.summary }}</div>
+              <div class="list-item__text">目标：{{ arc.goal }}</div>
+              <div class="list-item__text">冲突：{{ arc.conflict }}</div>
+            </div>
+            <span class="badge">{{ arc.estimatedChapterCount || 0 }}章</span>
+          </article>
         </div>
       </section>
     </div>

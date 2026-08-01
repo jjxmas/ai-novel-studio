@@ -14,7 +14,7 @@ public class IdeaGenerateRequest {
     @NotNull(message = "作品 ID 不能为空")
     private Long projectId;
 
-    private Long modelConfigId;
+    private String modelType;
 
     private List<String> genres;
 

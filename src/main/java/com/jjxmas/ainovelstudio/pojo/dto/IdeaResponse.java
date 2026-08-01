@@ -36,8 +36,15 @@ public class IdeaResponse {
 
     private String riskLevel;
 
+    private List<String> strengths;
+
+    private List<String> risks;
+
+    private List<String> suggestions;
+
+    private String overallComment;
+
     private String summary;
 
     private String status;
 }
-

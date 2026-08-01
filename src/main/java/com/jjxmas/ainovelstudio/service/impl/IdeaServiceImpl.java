@@ -1,6 +1,7 @@
 package com.jjxmas.ainovelstudio.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.jjxmas.ainovelstudio.ai.AiGenerateResult;
@@ -8,6 +9,8 @@ import com.jjxmas.ainovelstudio.ai.AiOrchestratorService;
 import com.jjxmas.ainovelstudio.common.exception.BusinessException;
 import com.jjxmas.ainovelstudio.common.exception.ErrorCode;
 import com.jjxmas.ainovelstudio.common.util.JsonUtils;
+import com.jjxmas.ainovelstudio.mapper.ModelConfigMapper;
+import com.jjxmas.ainovelstudio.pojo.entity.ModelConfig;
 import com.jjxmas.ainovelstudio.service.GenerationJobService;
 import com.jjxmas.ainovelstudio.pojo.dto.IdeaGenerateRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.IdeaResponse;
@@ -44,6 +47,7 @@ public class IdeaServiceImpl extends ServiceImpl<IdeaMapper, Idea> implements Id
     private final GenerationJobService generationJobService;
     private final VersionService versionService;
     private final AiOrchestratorService aiOrchestratorService;
+    private final ModelConfigMapper modelConfigMapper;
     private final TransactionTemplate transactionTemplate;
 
     /**
@@ -54,13 +58,14 @@ public class IdeaServiceImpl extends ServiceImpl<IdeaMapper, Idea> implements Id
             ProjectMapper projectMapper,
             GenerationJobService generationJobService,
             VersionService versionService,
-            AiOrchestratorService aiOrchestratorService,
+            AiOrchestratorService aiOrchestratorService, ModelConfigMapper modelConfigMapper,
             TransactionTemplate transactionTemplate) {
         this.ideaEvaluationMapper = ideaEvaluationMapper;
         this.projectMapper = projectMapper;
         this.generationJobService = generationJobService;
         this.versionService = versionService;
         this.aiOrchestratorService = aiOrchestratorService;
+        this.modelConfigMapper = modelConfigMapper;
         this.transactionTemplate = transactionTemplate;
     }
 
@@ -111,7 +116,7 @@ public class IdeaServiceImpl extends ServiceImpl<IdeaMapper, Idea> implements Id
                                 semaphore.release();
                             }
                         }, virtualExecutor)
-                        .orTimeout(90, TimeUnit.SECONDS)
+                        .orTimeout(300, TimeUnit.SECONDS)
                         .exceptionally(ex -> {
                             Throwable realEx = ex.getCause() != null ? ex.getCause() : ex;
                             log.error("批量生成创意：第{}条大模型调用异常", idx,realEx);
@@ -261,48 +266,67 @@ public class IdeaServiceImpl extends ServiceImpl<IdeaMapper, Idea> implements Id
     private IdeaResponse createGeneratedIdea(Project project, IdeaGenerateRequest request) {
         String genreText = String.join(" + ", JsonUtils.toStringList(project.getGenres()));
         Map<String, Object> context = ideaContext(project, request, genreText);
-        AiGenerateResult result = aiOrchestratorService.generateIdea(request.getModelConfigId(), context);
-        if(result==null){
-            throw new BusinessException(ErrorCode.NOT_FOUND,"大模型响应为空");
-        }
-        Idea aiIdea = JsonUtils.toObject(result.getContent(), Idea.class);
-        if(aiIdea == null){
-            throw new BusinessException(ErrorCode.PARAMETER_ERROR,"大模型生成内容，json转对象失败");
-        }
-        //String content =result.getContent();
 
-        aiIdea.setProjectId(project.getId())
+        ModelConfig config = modelConfigMapper.selectOne(
+                new QueryWrapper<ModelConfig>()
+                        .eq("usage_type", request.getModelType())
+                        .eq("enabled", 1)
+                        .last("LIMIT 1")
+        );
+        if (config == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "可用模型配置不存在");
+        }
+
+        AiGenerateResult ideaResult = aiOrchestratorService.generateIdea(config.getId(), context);
+        if (ideaResult == null || ideaResult.getContent() == null || ideaResult.getContent().isBlank()) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "大模型创意响应为空");
+        }
+
+        Map<String, Object> ideaMap = JsonUtils.toMap(ideaResult.getContent());
+        if (ideaMap == null || ideaMap.isEmpty()) {
+            throw new BusinessException(ErrorCode.PARAMETER_ERROR, "大模型创意内容 JSON 解析失败");
+        }
+
+        Idea aiIdea = new Idea()
+                .setProjectId(project.getId())
+                .setTitle(textValue(ideaMap, "title", "未命名创意"))
+                .setSellingPoints((List<String>) ideaMap.get("sellingPoints"))
+                .setWorldview(textValue(ideaMap, "worldview", ""))
+                .setMainConflict(textValue(ideaMap, "mainConflict", ""))
+                .setEstimatedWordCount(intValue(ideaMap, "estimatedWordCount", defaultEstimatedWordCount(project)))
+                .setSummary(textValue(ideaMap, "summary", ""))
                 .setStatus("candidate")
-                .setModelConfigId(request.getModelConfigId());
-//        Idea idea = new Idea()
-//                .setProjectId(project.getId())
-//                .setTitle(firstTitle(ideaMap.get("title"), genreText + "新手长篇创意方案"))
-//                .setSellingPoints(JsonUtils.toJson(List.of("开局目标清晰", "升级反馈稳定", "长期冲突可扩展")))
-//                .setWorldview(extractField(content, "世界观", "以《" + genreText + "》为底色，主角从熟悉环境进入更大的规则体系"))
-//                .setMainConflict(extractField(content, "主线冲突", "主角想掌控命运，但既有秩序不断压缩选择空间"))
-//                .setEstimatedWordCount(project.getTargetWordCountMax() == null || project.getTargetWordCountMax() == 0
-//                        ? 2_000_000
-//                        : project.getTargetWordCountMax())
-//                .setSummary(content)
-//                .setStatus("candidate")
-//                .setModelConfigId(request.getModelConfigId());
+                .setModelConfigId(config.getId());
         save(aiIdea);
+        if (aiIdea.getId() == null) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "创意保存成功但 ID 未回填");
+        }
 
-        IdeaEvaluation evaluation = new IdeaEvaluation()
+        AiGenerateResult evaluationResult = aiOrchestratorService.evaluateIdea(config.getId(), context, ideaMap);
+        if (evaluationResult == null || evaluationResult.getContent() == null || evaluationResult.getContent().isBlank()) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "大模型评估响应为空");
+        }
+
+        Map<String, Object> evaluationMap = JsonUtils.toMap(evaluationResult.getContent());
+        if (evaluationMap == null || evaluationMap.isEmpty()) {
+            throw new BusinessException(ErrorCode.PARAMETER_ERROR, "大模型评估内容 JSON 解析失败");
+        }
+
+        IdeaEvaluation ideaEvaluation = new IdeaEvaluation()
                 .setIdeaId(aiIdea.getId())
                 .setRoundNo(1)
-                .setLongFormPotentialScore(82.0)
-                .setConflictScore(78.0)
-                .setNoveltyScore(70.0)
-                .setBeginnerFriendlinessScore(86.0)
-                .setPlatformFitScore(80.0)
-                .setRiskLevel("medium")
-                .setStrengths(JsonUtils.toJson(List.of("主线目标容易展开", "人物成长线清晰")))
-                .setRisks(JsonUtils.toJson(List.of("需要避免套路化表达", "中后期需要持续制造新矛盾")))
-                .setSuggestions(JsonUtils.toJson(List.of("尽早设计阶段性反转", "每卷保留一个可回收伏笔")))
-                .setOverallComment("适合作为新手长篇起点，但需要在设定库阶段固定规则边界")
-                .setModelConfigId(request.getModelConfigId());
-        ideaEvaluationMapper.insert(evaluation);
+                .setLongFormPotentialScore(doubleValue(evaluationMap, "longFormPotentialScore", 0.0))
+                .setConflictScore(doubleValue(evaluationMap, "conflictScore", 0.0))
+                .setNoveltyScore(doubleValue(evaluationMap, "noveltyScore", 0.0))
+                .setBeginnerFriendlinessScore(doubleValue(evaluationMap, "beginnerFriendlinessScore", 0.0))
+                .setPlatformFitScore(doubleValue(evaluationMap, "platformFitScore", 0.0))
+                .setRiskLevel(textValue(evaluationMap, "riskLevel", "medium"))
+                .setStrengths((List<String>) evaluationMap.get("strengths"))
+                .setRisks((List<String>) evaluationMap.get("risks"))
+                .setSuggestions((List<String>) evaluationMap.get("suggestions"))
+                .setOverallComment(textValue(evaluationMap, "overallComment", ""))
+                .setModelConfigId(config.getId());
+        ideaEvaluationMapper.insert(ideaEvaluation);
 
         Map<String, Object> snapshot = ideaSnapshot(aiIdea);
         Long jobId = generationJobService.recordFinishedJob(
@@ -310,12 +334,63 @@ public class IdeaServiceImpl extends ServiceImpl<IdeaMapper, Idea> implements Id
                 "idea_generation",
                 "idea",
                 aiIdea.getId(),
-                request.getModelConfigId(),
-                Map.of("context", context, "ideaCount", 0),
-                Map.of("idea", snapshot, "modelName", defaultText(result.getModelName(), "")));
-        versionService.recordVersion(project.getId(), "idea", aiIdea.getId(), snapshot, "ai_generate", "AI 生成创意", request.getModelConfigId(), jobId);
-        return toResponse(aiIdea, evaluation);
+                config.getId(),
+                Map.of("context", context),
+                Map.of(
+                        "idea", snapshot,
+                        "evaluation", evaluationMap,
+                        "modelName", defaultText(ideaResult.getModelName(), "")
+                ));
+
+        versionService.recordVersion(
+                project.getId(),
+                "idea",
+                aiIdea.getId(),
+                snapshot,
+                "ai_generate",
+                "AI 生成创意",
+                config.getId(),
+                jobId);
+
+        return toResponse(aiIdea, ideaEvaluation);
     }
+    private String textValue(Map<String, Object> map, String key, String fallback) {
+        Object value = map.get(key);
+        if (value == null) {
+            return fallback;
+        }
+        String text = value.toString();
+        return text.isBlank() ? fallback : text;
+    }
+
+    private Integer intValue(Map<String, Object> map, String key, Integer fallback) {
+        Object value = map.get(key);
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        if (value instanceof String text && !text.isBlank()) {
+            return Integer.parseInt(text);
+        }
+        return fallback;
+    }
+
+    private Double doubleValue(Map<String, Object> map, String key, Double fallback) {
+        Object value = map.get(key);
+        if (value instanceof Number number) {
+            return number.doubleValue();
+        }
+        if (value instanceof String text && !text.isBlank()) {
+            return Double.parseDouble(text);
+        }
+        return fallback;
+    }
+
+    private Integer defaultEstimatedWordCount(Project project) {
+        return project.getTargetWordCountMax() == null || project.getTargetWordCountMax() == 0
+                ? 2_000_000
+                : project.getTargetWordCountMax();
+    }
+
 
     /**
      * 获取项目实体，不存在时抛出业务异常。
@@ -368,6 +443,10 @@ public class IdeaServiceImpl extends ServiceImpl<IdeaMapper, Idea> implements Id
                 .beginnerFriendlinessScore(score(evaluation == null ? null : evaluation.getBeginnerFriendlinessScore()))
                 .platformFitScore(score(evaluation == null ? null : evaluation.getPlatformFitScore()))
                 .riskLevel(evaluation == null ? null : evaluation.getRiskLevel())
+                .strengths(evaluation == null ? List.of() : defaultList(evaluation.getStrengths()))
+                .risks(evaluation == null ? List.of() : defaultList(evaluation.getRisks()))
+                .suggestions(evaluation == null ? List.of() : defaultList(evaluation.getSuggestions()))
+                .overallComment(evaluation == null ? "" : defaultText(evaluation.getOverallComment(), ""))
                 .status(idea.getStatus())
                 .build();
     }
@@ -467,5 +546,9 @@ public class IdeaServiceImpl extends ServiceImpl<IdeaMapper, Idea> implements Id
      */
     private String defaultText(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value;
+    }
+
+    private <T> List<T> defaultList(List<T> values) {
+        return values == null ? List.of() : values;
     }
 }
