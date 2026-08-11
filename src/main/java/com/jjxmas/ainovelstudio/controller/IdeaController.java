@@ -18,9 +18,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * 创意接口，负责创意生成、查询、修改、重写和选中。
- */
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/v1")
@@ -28,17 +25,11 @@ public class IdeaController {
 
     private final IdeaService ideaService;
 
-    /**
-     * 检查创意模块接口是否可用。
-     */
     @GetMapping("/ideas/ping")
     public ApiResponse<String> ping() {
         return ApiResponse.success("创意模块已就绪");
     }
 
-    /**
-     * 为指定项目批量生成创意方案。
-     */
     @PostMapping("/projects/{projectId}/ideas/generate")
     public ApiResponse<List<IdeaResponse>> generateIdeas(
             @PathVariable Long projectId,
@@ -47,27 +38,19 @@ public class IdeaController {
         return ApiResponse.success("创意生成完成", ideaService.generateIdeas(request));
     }
 
-    /**
-     * 查询指定项目下的创意列表。
-     */
     @GetMapping("/projects/{projectId}/ideas")
     public ApiResponse<List<IdeaResponse>> listIdeas(@PathVariable Long projectId) {
         return ApiResponse.success(ideaService.listIdeas(projectId));
     }
 
-    /**
-     * 手动更新指定创意内容。
-     */
     @PatchMapping("/ideas/{ideaId}")
-    public ApiResponse<IdeaResponse> updateIdea(
+    public ApiResponse<Void> updateIdea(
             @PathVariable Long ideaId,
             @Valid @RequestBody IdeaUpdateRequest request) {
-        return ApiResponse.success("创意修改已保存", ideaService.updateIdea(ideaId, request));
+        ideaService.updateIdea(ideaId, request);
+        return ApiResponse.success("创意修改已保存", null);
     }
 
-    /**
-     * 根据修改指令重新生成指定创意。
-     */
     @PostMapping({"/ideas/{ideaId}/rewrite", "/ideas/{ideaId}/regenerate"})
     public ApiResponse<IdeaResponse> rewriteIdea(
             @PathVariable Long ideaId,
@@ -75,19 +58,15 @@ public class IdeaController {
         return ApiResponse.success("创意重生成完成", ideaService.rewriteIdea(ideaId, request));
     }
 
-    /**
-     * 将指定创意标记为项目选中方案。
-     */
     @DeleteMapping("/ideas/{ideaId}")
     public ApiResponse<Void> deleteIdea(@PathVariable Long ideaId) {
         ideaService.deleteIdea(ideaId);
         return ApiResponse.success("创意已删除", null);
     }
-    /**
-     * 将指定创意标记为项目选中方案。
-     */
+
     @PostMapping("/ideas/{ideaId}/select")
-    public ApiResponse<IdeaResponse> selectIdea(@PathVariable Long ideaId) {
-        return ApiResponse.success("创意已选中", ideaService.selectIdea(ideaId));
+    public ApiResponse<Void> selectIdea(@PathVariable Long ideaId) {
+        ideaService.selectIdea(ideaId);
+        return ApiResponse.success("创意已选中", null);
     }
 }

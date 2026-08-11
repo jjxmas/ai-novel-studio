@@ -137,18 +137,19 @@ public class SettingLibraryController {
     }
 
     @PostMapping("/projects/{projectId}/characters")
-    public ApiResponse<StoryCharacterResponse> createCharacter(
+    public ApiResponse<Long> createCharacter(
             @PathVariable Long projectId,
             @Valid @RequestBody StoryCharacterUpsertRequest request) {
         return ApiResponse.success("character-created", settingLibraryService.createCharacter(projectId, request));
     }
 
     @PatchMapping("/projects/{projectId}/characters/{characterId}")
-    public ApiResponse<StoryCharacterResponse> updateCharacter(
+    public ApiResponse<Void> updateCharacter(
             @PathVariable Long projectId,
             @PathVariable Long characterId,
             @Valid @RequestBody StoryCharacterUpsertRequest request) {
-        return ApiResponse.success("character-saved", settingLibraryService.updateCharacter(projectId, characterId, request));
+        settingLibraryService.updateCharacter(projectId, characterId, request);
+        return ApiResponse.success("character-saved", null);
     }
 
     @DeleteMapping("/projects/{projectId}/characters/{characterId}")
@@ -163,18 +164,19 @@ public class SettingLibraryController {
     }
 
     @PostMapping("/projects/{projectId}/organizations")
-    public ApiResponse<OrganizationResponse> createOrganization(
+    public ApiResponse<Long> createOrganization(
             @PathVariable Long projectId,
             @Valid @RequestBody OrganizationUpsertRequest request) {
         return ApiResponse.success("organization-created", settingLibraryService.createOrganization(projectId, request));
     }
 
     @PatchMapping("/projects/{projectId}/organizations/{organizationId}")
-    public ApiResponse<OrganizationResponse> updateOrganization(
+    public ApiResponse<Void> updateOrganization(
             @PathVariable Long projectId,
             @PathVariable Long organizationId,
             @Valid @RequestBody OrganizationUpsertRequest request) {
-        return ApiResponse.success("organization-saved", settingLibraryService.updateOrganization(projectId, organizationId, request));
+        settingLibraryService.updateOrganization(projectId, organizationId, request);
+        return ApiResponse.success("organization-saved", null);
     }
 
     @DeleteMapping("/projects/{projectId}/organizations/{organizationId}")
@@ -189,18 +191,19 @@ public class SettingLibraryController {
     }
 
     @PostMapping("/projects/{projectId}/locations")
-    public ApiResponse<StoryLocationResponse> createLocation(
+    public ApiResponse<Long> createLocation(
             @PathVariable Long projectId,
             @Valid @RequestBody StoryLocationUpsertRequest request) {
         return ApiResponse.success("location-created", settingLibraryService.createLocation(projectId, request));
     }
 
     @PatchMapping("/projects/{projectId}/locations/{locationId}")
-    public ApiResponse<StoryLocationResponse> updateLocation(
+    public ApiResponse<Void> updateLocation(
             @PathVariable Long projectId,
             @PathVariable Long locationId,
             @Valid @RequestBody StoryLocationUpsertRequest request) {
-        return ApiResponse.success("location-saved", settingLibraryService.updateLocation(projectId, locationId, request));
+        settingLibraryService.updateLocation(projectId, locationId, request);
+        return ApiResponse.success("location-saved", null);
     }
 
     @DeleteMapping("/projects/{projectId}/locations/{locationId}")
@@ -215,18 +218,19 @@ public class SettingLibraryController {
     }
 
     @PostMapping("/projects/{projectId}/items")
-    public ApiResponse<StoryItemResponse> createItem(
+    public ApiResponse<Long> createItem(
             @PathVariable Long projectId,
             @Valid @RequestBody StoryItemUpsertRequest request) {
         return ApiResponse.success("item-created", settingLibraryService.createItem(projectId, request));
     }
 
     @PatchMapping("/projects/{projectId}/items/{itemId}")
-    public ApiResponse<StoryItemResponse> updateItem(
+    public ApiResponse<Void> updateItem(
             @PathVariable Long projectId,
             @PathVariable Long itemId,
             @Valid @RequestBody StoryItemUpsertRequest request) {
-        return ApiResponse.success("item-saved", settingLibraryService.updateItem(projectId, itemId, request));
+        settingLibraryService.updateItem(projectId, itemId, request);
+        return ApiResponse.success("item-saved", null);
     }
 
     @DeleteMapping("/projects/{projectId}/items/{itemId}")
@@ -241,18 +245,19 @@ public class SettingLibraryController {
     }
 
     @PostMapping("/projects/{projectId}/world-rules")
-    public ApiResponse<WorldRuleResponse> createWorldRule(
+    public ApiResponse<Long> createWorldRule(
             @PathVariable Long projectId,
             @Valid @RequestBody WorldRuleUpsertRequest request) {
         return ApiResponse.success("world-rule-created", settingLibraryService.createWorldRule(projectId, request));
     }
 
     @PatchMapping("/projects/{projectId}/world-rules/{ruleId}")
-    public ApiResponse<WorldRuleResponse> updateWorldRule(
+    public ApiResponse<Void> updateWorldRule(
             @PathVariable Long projectId,
             @PathVariable Long ruleId,
             @Valid @RequestBody WorldRuleUpsertRequest request) {
-        return ApiResponse.success("world-rule-saved", settingLibraryService.updateWorldRule(projectId, ruleId, request));
+        settingLibraryService.updateWorldRule(projectId, ruleId, request);
+        return ApiResponse.success("world-rule-saved", null);
     }
 
     @DeleteMapping("/projects/{projectId}/world-rules/{ruleId}")
@@ -267,18 +272,19 @@ public class SettingLibraryController {
     }
 
     @PostMapping("/projects/{projectId}/relations")
-    public ApiResponse<EntityRelationResponse> createRelation(
+    public ApiResponse<Long> createRelation(
             @PathVariable Long projectId,
             @Valid @RequestBody EntityRelationUpsertRequest request) {
         return ApiResponse.success("relation-created", settingLibraryService.createRelation(projectId, request));
     }
 
     @PatchMapping("/projects/{projectId}/relations/{relationId}")
-    public ApiResponse<EntityRelationResponse> updateRelation(
+    public ApiResponse<Void> updateRelation(
             @PathVariable Long projectId,
             @PathVariable Long relationId,
             @Valid @RequestBody EntityRelationUpsertRequest request) {
-        return ApiResponse.success("relation-saved", settingLibraryService.updateRelation(projectId, relationId, request));
+        settingLibraryService.updateRelation(projectId, relationId, request);
+        return ApiResponse.success("relation-saved", null);
     }
 
     @DeleteMapping("/projects/{projectId}/relations/{relationId}")
@@ -293,18 +299,19 @@ public class SettingLibraryController {
     }
 
     @PostMapping("/projects/{projectId}/events")
-    public ApiResponse<StoryEventResponse> createEvent(
+    public ApiResponse<Long> createEvent(
             @PathVariable Long projectId,
             @Valid @RequestBody StoryEventUpsertRequest request) {
         return ApiResponse.success("event-created", settingLibraryService.createEvent(projectId, request));
     }
 
     @PatchMapping("/projects/{projectId}/events/{eventId}")
-    public ApiResponse<StoryEventResponse> updateEvent(
+    public ApiResponse<Void> updateEvent(
             @PathVariable Long projectId,
             @PathVariable Long eventId,
             @Valid @RequestBody StoryEventUpsertRequest request) {
-        return ApiResponse.success("event-saved", settingLibraryService.updateEvent(projectId, eventId, request));
+        settingLibraryService.updateEvent(projectId, eventId, request);
+        return ApiResponse.success("event-saved", null);
     }
 
     @DeleteMapping("/projects/{projectId}/events/{eventId}")
@@ -319,18 +326,19 @@ public class SettingLibraryController {
     }
 
     @PostMapping("/projects/{projectId}/state-records")
-    public ApiResponse<EntityStateRecordResponse> createStateRecord(
+    public ApiResponse<Long> createStateRecord(
             @PathVariable Long projectId,
             @Valid @RequestBody EntityStateRecordUpsertRequest request) {
         return ApiResponse.success("state-record-created", settingLibraryService.createStateRecord(projectId, request));
     }
 
     @PatchMapping("/projects/{projectId}/state-records/{recordId}")
-    public ApiResponse<EntityStateRecordResponse> updateStateRecord(
+    public ApiResponse<Void> updateStateRecord(
             @PathVariable Long projectId,
             @PathVariable Long recordId,
             @Valid @RequestBody EntityStateRecordUpsertRequest request) {
-        return ApiResponse.success("state-record-saved", settingLibraryService.updateStateRecord(projectId, recordId, request));
+        settingLibraryService.updateStateRecord(projectId, recordId, request);
+        return ApiResponse.success("state-record-saved", null);
     }
 
     @DeleteMapping("/projects/{projectId}/state-records/{recordId}")

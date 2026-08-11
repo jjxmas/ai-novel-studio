@@ -1,7 +1,10 @@
 package com.jjxmas.ainovelstudio.pojo.entity;
 
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler;
 import com.jjxmas.ainovelstudio.common.entity.BaseEntity;
+import java.util.List;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.experimental.Accessors;
@@ -12,12 +15,13 @@ import lombok.experimental.Accessors;
 @Data
 @Accessors(chain = true)
 @EqualsAndHashCode(callSuper = true)
-@TableName("projects")
+@TableName(value = "projects", autoResultMap = true)
 public class Project extends BaseEntity {
 
     private String title;
 
-    private String genres;
+    @TableField(typeHandler = JacksonTypeHandler.class)
+    private List<String> genres;
 
     private Integer targetWordCountMin;
 

@@ -376,15 +376,17 @@ function mapExport(data: any, projectId: number, format: ExportRecord['format'],
 
 export const novelApi = {
   listProjects: async () => (await request<any[]>('/projects')).map(mapProject),
-  createProject: async (payload: ProjectCreateRequest) => mapProject(await post('/projects', payload)),
-  updateProject: async (projectId: number, payload: ProjectUpdateRequest) =>
-    mapProject(await patch(`/projects/${projectId}`, payload)),
+  createProject: (payload: ProjectCreateRequest) => post<number>('/projects', payload),
+  updateProject: (projectId: number, payload: ProjectUpdateRequest) =>
+    patch<void>(`/projects/${projectId}`, payload),
 
   listModelConfigs: () => request<ModelConfig[]>('/model-configs'),
-  createModelConfig: (payload: ModelConfigRequest) => post<ModelConfig>('/model-configs', payload),
-  updateModelConfig: (id: number, payload: ModelConfigRequest) => patch<ModelConfig>(`/model-configs/${id}`, payload),
-  setDefaultModel: (id: number) => post<ModelConfig>(`/model-configs/${id}/default`),
-  disableModelConfig: (id: number) => del<ModelConfig>(`/model-configs/${id}`),
+  createModelConfig: (payload: ModelConfigRequest) =>
+    post<{ id: number }>('/model-configs', payload).then((data) => data.id),
+  updateModelConfig: (id: number, payload: ModelConfigRequest) =>
+    patch<void>(`/model-configs/${id}`, payload),
+  setDefaultModel: (id: number) => post<void>(`/model-configs/${id}/default`),
+  disableModelConfig: (id: number) => del<void>(`/model-configs/${id}`),
 
   generateIdeas: (projectId: number, suggestion?: string, ideaCount = 3) => {
     const payload: IdeaGenerateRequest = {
@@ -399,7 +401,7 @@ export const novelApi = {
   listIdeas: (projectId: number) =>
     request<any[]>(`/projects/${projectId}/ideas`).then((items) => items.map((item) => mapIdea(item, projectId))),
   updateIdea: (idea: Idea, changeNote = '用户直接修改创意内容') =>
-    patch<any>(`/ideas/${idea.id}`, {
+    patch<void>(`/ideas/${idea.id}`, {
       title: idea.title,
       sellingPoints: [idea.sellingPoint],
       worldview: idea.worldview,
@@ -407,10 +409,10 @@ export const novelApi = {
       estimatedWordCount: Number.parseInt(idea.estimatedWords, 10) || 0,
       summary: idea.content,
       changeNote,
-    }).then((item) => mapIdea(item, idea.projectId)),
+    }),
   rewriteIdea: (ideaId: number, suggestion: string) =>
     post<any>(`/ideas/${ideaId}/rewrite`, { instruction: suggestion }).then((item) => mapIdea(item)),
-  selectIdea: (ideaId: number) => post<any>(`/ideas/${ideaId}/select`).then((item) => mapIdea(item)),
+  selectIdea: (ideaId: number) => post<void>(`/ideas/${ideaId}/select`),
   deleteIdea: (ideaId: number) => del<void>(`/ideas/${ideaId}`),
 
   generateSettingLibrary: (projectId: number) =>
@@ -436,72 +438,72 @@ export const novelApi = {
   listCharacters: (projectId: number) =>
     request<any[]>(`/projects/${projectId}/characters`).then((items) => items.map((item) => mapCharacter(item, projectId))),
   createCharacter: (projectId: number, payload: StoryCharacterRequest) =>
-    post<any>(`/projects/${projectId}/characters`, payload).then((item) => mapCharacter(item, projectId)),
+    post<number>(`/projects/${projectId}/characters`, payload),
   updateCharacter: (projectId: number, characterId: number, payload: StoryCharacterRequest) =>
-    patch<any>(`/projects/${projectId}/characters/${characterId}`, payload).then((item) => mapCharacter(item, projectId)),
+    patch<void>(`/projects/${projectId}/characters/${characterId}`, payload),
   deleteCharacter: (projectId: number, characterId: number) =>
     del<void>(`/projects/${projectId}/characters/${characterId}`),
 
   listOrganizations: (projectId: number) =>
     request<any[]>(`/projects/${projectId}/organizations`).then((items) => items.map((item) => mapOrganization(item, projectId))),
   createOrganization: (projectId: number, payload: OrganizationRequest) =>
-    post<any>(`/projects/${projectId}/organizations`, payload).then((item) => mapOrganization(item, projectId)),
+    post<number>(`/projects/${projectId}/organizations`, payload),
   updateOrganization: (projectId: number, organizationId: number, payload: OrganizationRequest) =>
-    patch<any>(`/projects/${projectId}/organizations/${organizationId}`, payload).then((item) => mapOrganization(item, projectId)),
+    patch<void>(`/projects/${projectId}/organizations/${organizationId}`, payload),
   deleteOrganization: (projectId: number, organizationId: number) =>
     del<void>(`/projects/${projectId}/organizations/${organizationId}`),
 
   listLocations: (projectId: number) =>
     request<any[]>(`/projects/${projectId}/locations`).then((items) => items.map((item) => mapLocation(item, projectId))),
   createLocation: (projectId: number, payload: StoryLocationRequest) =>
-    post<any>(`/projects/${projectId}/locations`, payload).then((item) => mapLocation(item, projectId)),
+    post<number>(`/projects/${projectId}/locations`, payload),
   updateLocation: (projectId: number, locationId: number, payload: StoryLocationRequest) =>
-    patch<any>(`/projects/${projectId}/locations/${locationId}`, payload).then((item) => mapLocation(item, projectId)),
+    patch<void>(`/projects/${projectId}/locations/${locationId}`, payload),
   deleteLocation: (projectId: number, locationId: number) =>
     del<void>(`/projects/${projectId}/locations/${locationId}`),
 
   listItems: (projectId: number) =>
     request<any[]>(`/projects/${projectId}/items`).then((items) => items.map((item) => mapItem(item, projectId))),
   createItem: (projectId: number, payload: StoryItemRequest) =>
-    post<any>(`/projects/${projectId}/items`, payload).then((item) => mapItem(item, projectId)),
+    post<number>(`/projects/${projectId}/items`, payload),
   updateItem: (projectId: number, itemId: number, payload: StoryItemRequest) =>
-    patch<any>(`/projects/${projectId}/items/${itemId}`, payload).then((item) => mapItem(item, projectId)),
+    patch<void>(`/projects/${projectId}/items/${itemId}`, payload),
   deleteItem: (projectId: number, itemId: number) =>
     del<void>(`/projects/${projectId}/items/${itemId}`),
 
   listWorldRules: (projectId: number) =>
     request<any[]>(`/projects/${projectId}/world-rules`).then((items) => items.map((item) => mapWorldRule(item, projectId))),
   createWorldRule: (projectId: number, payload: WorldRuleRequest) =>
-    post<any>(`/projects/${projectId}/world-rules`, payload).then((item) => mapWorldRule(item, projectId)),
+    post<number>(`/projects/${projectId}/world-rules`, payload),
   updateWorldRule: (projectId: number, ruleId: number, payload: WorldRuleRequest) =>
-    patch<any>(`/projects/${projectId}/world-rules/${ruleId}`, payload).then((item) => mapWorldRule(item, projectId)),
+    patch<void>(`/projects/${projectId}/world-rules/${ruleId}`, payload),
   deleteWorldRule: (projectId: number, ruleId: number) =>
     del<void>(`/projects/${projectId}/world-rules/${ruleId}`),
 
   listRelations: (projectId: number) =>
     request<any[]>(`/projects/${projectId}/relations`).then((items) => items.map((item) => mapRelation(item, projectId))),
   createRelation: (projectId: number, payload: EntityRelationRequest) =>
-    post<any>(`/projects/${projectId}/relations`, payload).then((item) => mapRelation(item, projectId)),
+    post<number>(`/projects/${projectId}/relations`, payload),
   updateRelation: (projectId: number, relationId: number, payload: EntityRelationRequest) =>
-    patch<any>(`/projects/${projectId}/relations/${relationId}`, payload).then((item) => mapRelation(item, projectId)),
+    patch<void>(`/projects/${projectId}/relations/${relationId}`, payload),
   deleteRelation: (projectId: number, relationId: number) =>
     del<void>(`/projects/${projectId}/relations/${relationId}`),
 
   listEvents: (projectId: number) =>
     request<any[]>(`/projects/${projectId}/events`).then((items) => items.map((item) => mapEvent(item, projectId))),
   createEvent: (projectId: number, payload: StoryEventRequest) =>
-    post<any>(`/projects/${projectId}/events`, payload).then((item) => mapEvent(item, projectId)),
+    post<number>(`/projects/${projectId}/events`, payload),
   updateEvent: (projectId: number, eventId: number, payload: StoryEventRequest) =>
-    patch<any>(`/projects/${projectId}/events/${eventId}`, payload).then((item) => mapEvent(item, projectId)),
+    patch<void>(`/projects/${projectId}/events/${eventId}`, payload),
   deleteEvent: (projectId: number, eventId: number) =>
     del<void>(`/projects/${projectId}/events/${eventId}`),
 
   listStateRecords: (projectId: number) =>
     request<any[]>(`/projects/${projectId}/state-records`).then((items) => items.map((item) => mapStateRecord(item, projectId))),
   createStateRecord: (projectId: number, payload: EntityStateRecordRequest) =>
-    post<any>(`/projects/${projectId}/state-records`, payload).then((item) => mapStateRecord(item, projectId)),
+    post<number>(`/projects/${projectId}/state-records`, payload),
   updateStateRecord: (projectId: number, recordId: number, payload: EntityStateRecordRequest) =>
-    patch<any>(`/projects/${projectId}/state-records/${recordId}`, payload).then((item) => mapStateRecord(item, projectId)),
+    patch<void>(`/projects/${projectId}/state-records/${recordId}`, payload),
   deleteStateRecord: (projectId: number, recordId: number) =>
     del<void>(`/projects/${projectId}/state-records/${recordId}`),
 
@@ -515,7 +517,9 @@ export const novelApi = {
   updateGlobalOutline: (id: number, content: string) =>
     patch<any>(`/global-outlines/${id}`, { title: '全局大纲', content }).then(mapGlobalOutline),
   confirmGlobalOutline: (id: number) =>
-    post<any>(`/global-outlines/${id}/confirm`).then(mapGlobalOutline),
+    post<void>(`/global-outlines/${id}/confirm`),
+  saveGlobalOutline: (id: number, content: string) =>
+    patch<void>(`/global-outlines/${id}`, { title: '鍏ㄥ眬澶х翰', content }),
   startOutlineWorkflow: (projectId: number) =>
     post<any>(`/projects/${projectId}/outline-workflows`, { projectId }).then(mapOutlineWorkflow),
   getLatestOutlineWorkflow: (projectId: number) =>
@@ -533,7 +537,7 @@ export const novelApi = {
       revisionAdvice: suggestion,
     }).then((item) => mapChapter(item, chapter.projectId)),
   updateChapter: (chapterId: number, content: string) =>
-    patch<any>(`/chapters/${chapterId}`, { content }).then((item) => mapChapter(item)),
+    patch<void>(`/chapters/${chapterId}`, { content }),
   rewriteChapterContent: (chapterId: number, suggestion: string) =>
     post<any>(`/chapters/${chapterId}/rewrite-content`, {
       instruction: suggestion || '保持章节目标和关键设定一致，重写得更具体、更有动作和对白。',

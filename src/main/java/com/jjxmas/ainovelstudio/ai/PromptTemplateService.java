@@ -2,6 +2,8 @@ package com.jjxmas.ainovelstudio.ai;
 
 import java.util.Map;
 
+import com.jjxmas.ainovelstudio.common.util.JsonUtils;
+import com.jjxmas.ainovelstudio.prompts.ChapterGenerationPrompts;
 import com.jjxmas.ainovelstudio.prompts.IdeaGenerationPrompts;
 import org.springframework.stereotype.Service;
 
@@ -21,7 +23,7 @@ public class PromptTemplateService {
             case SETTING_BLUEPRINT -> "你是长篇小说设定规划器。只输出符合要求的 JSON，不要输出 Markdown、解释或代码围栏。所有实体都必须有稳定的 key。";
             case SETTING_DRAFT -> "你是长篇小说设定建造器。根据已确认蓝图生成结构化设定草案。只输出符合要求的 JSON，不要输出 Markdown、解释或代码围栏。不得创造蓝图之外的核心实体。";
             case OUTLINE_WORKFLOW_DRAFT -> "你是长篇小说大纲规划器。根据已确认设定生成可写作的大纲草案。只输出 JSON，不要输出 Markdown、解释或代码围栏。";
-            case CHAPTER_GENERATION -> "你是长篇网文写作助手。请遵守已确认设定和大纲，只输出章节正文，不解释过程。";
+            case CHAPTER_GENERATION -> ChapterGenerationPrompts.CHAPTER_GENERATION_SYSTEM;
             case REWRITE -> "你是长篇网文改写助手。请根据用户修改意见重写内容，保持原目标和关键设定一致。";
             case CHAPTER_SUMMARY -> "你是小说章节摘要助手。请提取剧情、人物状态、地点移动和伏笔变化，输出中文摘要。";
             case MEMORY_COMPRESSION -> "你是长篇小说记忆压缩助手。请把多条摘要压缩成一条中高层记忆，保留主线、人物变化和伏笔。";
@@ -130,9 +132,9 @@ public class PromptTemplateService {
      */
     public String chapterGenerationPrompt(Map<String, Object> context, String title, String outline, String advice) {
         return """
-                请生成一章适合连载网文的正文。
+                请生成一章适合连载网文的正文。这是长篇连续章节，不是独立短篇。
 
-                【上下文】
+                【结构化上下文 JSON】
                 %s
 
                 【章节标题】
@@ -146,10 +148,13 @@ public class PromptTemplateService {
 
                 要求：
                 1. 不要写解释，不要输出大纲。
-                2. 保持人物状态、时间线、地点移动和设定一致。
-                3. 尽量减少机械总结感，多用具体动作、对话和场景细节。
-                4. 结尾保留自然钩子。
-                """.formatted(context, title, outline, blankToDefault(advice, "无"));
+                2. 如果“上一章连续性.存在上一章”为 true，开头必须直接承接“上一章连续性.结尾片段”的最后动作、对白、地点和人物状态。
+                3. 不要无理由跳时间、换地点、换视角；如必须跳转，先用一两句话交代过渡。
+                4. 必须处理上一章连续性里的未解决事项、关键事件、人物变化、地点变化和伏笔变化。
+                5. 严格执行“本章承接契约”和当前章节大纲，避免另起炉灶创造新主线。
+                6. 尽量减少机械总结感，多用具体动作、对话和场景细节。
+                7. 结尾保留自然钩子，但不要覆盖已经建立的人物状态和设定代价。
+                """.formatted(JsonUtils.toJson(context), title, outline, blankToDefault(advice, "无"));
     }
 
     /**
@@ -159,7 +164,7 @@ public class PromptTemplateService {
         return """
                 请根据修改意见重写下面的章节正文。
 
-                【上下文】
+                【结构化上下文 JSON】
                 %s
 
                 【原正文】
@@ -169,7 +174,7 @@ public class PromptTemplateService {
                 %s
 
                 要求：只输出重写后的正文，保持连续性和风格一致。
-                """.formatted(context, content, instruction);
+                """.formatted(JsonUtils.toJson(context), content, instruction);
     }
 
     /**
@@ -177,7 +182,7 @@ public class PromptTemplateService {
      */
     public String chapterSummaryPrompt(String title, String content) {
         return """
-                请为以下章节生成单章摘要。
+                请为以下章节生成单章结构化摘要。只输出 JSON，不要输出 Markdown、解释或代码围栏。
 
                 【章节标题】
                 %s
@@ -185,7 +190,16 @@ public class PromptTemplateService {
                 【章节正文】
                 %s
 
-                输出包含：本章摘要、关键事件、人物变化、地点变化、伏笔变化。
+                【输出 JSON 结构】
+                {
+                  "summary": "本章 200-400 字摘要",
+                  "keyEvents": ["关键事件，按发生顺序"],
+                  "characterChanges": ["人物状态、立场、伤势、关系或心理变化"],
+                  "locationChanges": ["时间地点移动和场景状态变化"],
+                  "foreshadowChanges": ["新增、推进或回收的伏笔"],
+                  "endingState": "章末最后一幕的地点、在场人物、动作和情绪状态",
+                  "unresolvedThreads": ["下一章必须承接的未解决目标、危险、承诺或线索"]
+                }
                 """.formatted(title, content);
     }
 

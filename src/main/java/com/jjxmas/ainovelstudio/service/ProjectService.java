@@ -12,12 +12,12 @@ public interface ProjectService {
     /**
      * 创建新的小说作品项目。
      */
-    ProjectResponse createProject(ProjectCreateRequest request);
+    Long createProject(ProjectCreateRequest request);
 
     /**
      * 修改指定作品的基础信息。
      */
-    ProjectResponse updateProject(Long projectId, ProjectCreateRequest request);
+    void updateProject(Long projectId, ProjectCreateRequest request);
 
     /**
      * 查询指定项目详情。

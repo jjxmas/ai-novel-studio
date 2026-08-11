@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.jjxmas.ainovelstudio.common.exception.BusinessException;
 import com.jjxmas.ainovelstudio.common.exception.ErrorCode;
+import com.jjxmas.ainovelstudio.converter.SettingLibraryConverter;
 import com.jjxmas.ainovelstudio.mapper.EntityRelationMapper;
 import com.jjxmas.ainovelstudio.mapper.EntityStateRecordMapper;
 import com.jjxmas.ainovelstudio.mapper.IdeaMapper;
@@ -70,6 +71,7 @@ public class SettingLibraryServiceImpl extends ServiceImpl<SettingLibraryMapper,
     private final EntityStateRecordMapper entityStateRecordMapper;
     private final GenerationJobService generationJobService;
     private final VersionService versionService;
+    private final SettingLibraryConverter settingLibraryConverter;
 
     public SettingLibraryServiceImpl(
             ProjectMapper projectMapper,
@@ -83,7 +85,8 @@ public class SettingLibraryServiceImpl extends ServiceImpl<SettingLibraryMapper,
             StoryEventMapper storyEventMapper,
             EntityStateRecordMapper entityStateRecordMapper,
             GenerationJobService generationJobService,
-            VersionService versionService) {
+            VersionService versionService,
+            SettingLibraryConverter settingLibraryConverter) {
         this.projectMapper = projectMapper;
         this.ideaMapper = ideaMapper;
         this.storyCharacterMapper = storyCharacterMapper;
@@ -96,6 +99,7 @@ public class SettingLibraryServiceImpl extends ServiceImpl<SettingLibraryMapper,
         this.entityStateRecordMapper = entityStateRecordMapper;
         this.generationJobService = generationJobService;
         this.versionService = versionService;
+        this.settingLibraryConverter = settingLibraryConverter;
     }
 
     @Override
@@ -245,32 +249,28 @@ public class SettingLibraryServiceImpl extends ServiceImpl<SettingLibraryMapper,
     @Override
     public List<StoryCharacterResponse> listCharacters(Long projectId) {
         requireProject(projectId);
-        return storyCharacterMapper.selectList(new LambdaQueryWrapper<StoryCharacter>()
+        return settingLibraryConverter.toCharacterResponseList(storyCharacterMapper.selectList(new LambdaQueryWrapper<StoryCharacter>()
                         .eq(StoryCharacter::getProjectId, projectId)
                         .orderByDesc(StoryCharacter::getImportance)
-                        .orderByAsc(StoryCharacter::getId))
-                .stream()
-                .map(this::toCharacterResponse)
-                .toList();
+                        .orderByAsc(StoryCharacter::getId)));
     }
 
     @Override
     @Transactional
-    public StoryCharacterResponse createCharacter(Long projectId, StoryCharacterUpsertRequest request) {
+    public Long createCharacter(Long projectId, StoryCharacterUpsertRequest request) {
         requireProject(projectId);
         StoryCharacter character = new StoryCharacter().setProjectId(projectId);
         applyCharacter(character, request);
         storyCharacterMapper.insert(character);
-        return toCharacterResponse(character);
+        return character.getId();
     }
 
     @Override
     @Transactional
-    public StoryCharacterResponse updateCharacter(Long projectId, Long characterId, StoryCharacterUpsertRequest request) {
+    public void updateCharacter(Long projectId, Long characterId, StoryCharacterUpsertRequest request) {
         StoryCharacter character = requireCharacter(projectId, characterId);
         applyCharacter(character, request);
         storyCharacterMapper.updateById(character);
-        return toCharacterResponse(character);
     }
 
     @Override
@@ -282,31 +282,27 @@ public class SettingLibraryServiceImpl extends ServiceImpl<SettingLibraryMapper,
     @Override
     public List<OrganizationResponse> listOrganizations(Long projectId) {
         requireProject(projectId);
-        return organizationMapper.selectList(new LambdaQueryWrapper<Organization>()
+        return settingLibraryConverter.toOrganizationResponseList(organizationMapper.selectList(new LambdaQueryWrapper<Organization>()
                         .eq(Organization::getProjectId, projectId)
-                        .orderByAsc(Organization::getName))
-                .stream()
-                .map(this::toOrganizationResponse)
-                .toList();
+                        .orderByAsc(Organization::getName)));
     }
 
     @Override
     @Transactional
-    public OrganizationResponse createOrganization(Long projectId, OrganizationUpsertRequest request) {
+    public Long createOrganization(Long projectId, OrganizationUpsertRequest request) {
         requireProject(projectId);
         Organization organization = new Organization().setProjectId(projectId);
         applyOrganization(organization, request);
         organizationMapper.insert(organization);
-        return toOrganizationResponse(organization);
+        return organization.getId();
     }
 
     @Override
     @Transactional
-    public OrganizationResponse updateOrganization(Long projectId, Long organizationId, OrganizationUpsertRequest request) {
+    public void updateOrganization(Long projectId, Long organizationId, OrganizationUpsertRequest request) {
         Organization organization = requireOrganization(projectId, organizationId);
         applyOrganization(organization, request);
         organizationMapper.updateById(organization);
-        return toOrganizationResponse(organization);
     }
 
     @Override
@@ -318,32 +314,28 @@ public class SettingLibraryServiceImpl extends ServiceImpl<SettingLibraryMapper,
     @Override
     public List<StoryLocationResponse> listLocations(Long projectId) {
         requireProject(projectId);
-        return storyLocationMapper.selectList(new LambdaQueryWrapper<StoryLocation>()
+        return settingLibraryConverter.toLocationResponseList(storyLocationMapper.selectList(new LambdaQueryWrapper<StoryLocation>()
                         .eq(StoryLocation::getProjectId, projectId)
                         .orderByAsc(StoryLocation::getParentLocationId)
-                        .orderByAsc(StoryLocation::getName))
-                .stream()
-                .map(this::toLocationResponse)
-                .toList();
+                        .orderByAsc(StoryLocation::getName)));
     }
 
     @Override
     @Transactional
-    public StoryLocationResponse createLocation(Long projectId, StoryLocationUpsertRequest request) {
+    public Long createLocation(Long projectId, StoryLocationUpsertRequest request) {
         requireProject(projectId);
         StoryLocation location = new StoryLocation().setProjectId(projectId);
         applyLocation(location, request);
         storyLocationMapper.insert(location);
-        return toLocationResponse(location);
+        return location.getId();
     }
 
     @Override
     @Transactional
-    public StoryLocationResponse updateLocation(Long projectId, Long locationId, StoryLocationUpsertRequest request) {
+    public void updateLocation(Long projectId, Long locationId, StoryLocationUpsertRequest request) {
         StoryLocation location = requireLocation(projectId, locationId);
         applyLocation(location, request);
         storyLocationMapper.updateById(location);
-        return toLocationResponse(location);
     }
 
     @Override
@@ -355,31 +347,27 @@ public class SettingLibraryServiceImpl extends ServiceImpl<SettingLibraryMapper,
     @Override
     public List<StoryItemResponse> listItems(Long projectId) {
         requireProject(projectId);
-        return storyItemMapper.selectList(new LambdaQueryWrapper<StoryItem>()
+        return settingLibraryConverter.toItemResponseList(storyItemMapper.selectList(new LambdaQueryWrapper<StoryItem>()
                         .eq(StoryItem::getProjectId, projectId)
-                        .orderByAsc(StoryItem::getName))
-                .stream()
-                .map(this::toItemResponse)
-                .toList();
+                        .orderByAsc(StoryItem::getName)));
     }
 
     @Override
     @Transactional
-    public StoryItemResponse createItem(Long projectId, StoryItemUpsertRequest request) {
+    public Long createItem(Long projectId, StoryItemUpsertRequest request) {
         requireProject(projectId);
         StoryItem item = new StoryItem().setProjectId(projectId);
         applyItem(item, request);
         storyItemMapper.insert(item);
-        return toItemResponse(item);
+        return item.getId();
     }
 
     @Override
     @Transactional
-    public StoryItemResponse updateItem(Long projectId, Long itemId, StoryItemUpsertRequest request) {
+    public void updateItem(Long projectId, Long itemId, StoryItemUpsertRequest request) {
         StoryItem item = requireItem(projectId, itemId);
         applyItem(item, request);
         storyItemMapper.updateById(item);
-        return toItemResponse(item);
     }
 
     @Override
@@ -391,32 +379,28 @@ public class SettingLibraryServiceImpl extends ServiceImpl<SettingLibraryMapper,
     @Override
     public List<WorldRuleResponse> listWorldRules(Long projectId) {
         requireProject(projectId);
-        return worldRuleMapper.selectList(new LambdaQueryWrapper<WorldRule>()
+        return settingLibraryConverter.toWorldRuleResponseList(worldRuleMapper.selectList(new LambdaQueryWrapper<WorldRule>()
                         .eq(WorldRule::getProjectId, projectId)
                         .orderByDesc(WorldRule::getImportance)
-                        .orderByAsc(WorldRule::getName))
-                .stream()
-                .map(this::toWorldRuleResponse)
-                .toList();
+                        .orderByAsc(WorldRule::getName)));
     }
 
     @Override
     @Transactional
-    public WorldRuleResponse createWorldRule(Long projectId, WorldRuleUpsertRequest request) {
+    public Long createWorldRule(Long projectId, WorldRuleUpsertRequest request) {
         requireProject(projectId);
         WorldRule worldRule = new WorldRule().setProjectId(projectId);
         applyWorldRule(worldRule, request);
         worldRuleMapper.insert(worldRule);
-        return toWorldRuleResponse(worldRule);
+        return worldRule.getId();
     }
 
     @Override
     @Transactional
-    public WorldRuleResponse updateWorldRule(Long projectId, Long ruleId, WorldRuleUpsertRequest request) {
+    public void updateWorldRule(Long projectId, Long ruleId, WorldRuleUpsertRequest request) {
         WorldRule worldRule = requireWorldRule(projectId, ruleId);
         applyWorldRule(worldRule, request);
         worldRuleMapper.updateById(worldRule);
-        return toWorldRuleResponse(worldRule);
     }
 
     @Override
@@ -428,33 +412,29 @@ public class SettingLibraryServiceImpl extends ServiceImpl<SettingLibraryMapper,
     @Override
     public List<EntityRelationResponse> listRelations(Long projectId) {
         requireProject(projectId);
-        return entityRelationMapper.selectList(new LambdaQueryWrapper<EntityRelation>()
+        return settingLibraryConverter.toRelationResponseList(entityRelationMapper.selectList(new LambdaQueryWrapper<EntityRelation>()
                         .eq(EntityRelation::getProjectId, projectId)
                         .orderByAsc(EntityRelation::getSourceType)
                         .orderByAsc(EntityRelation::getSourceId)
-                        .orderByAsc(EntityRelation::getRelationType))
-                .stream()
-                .map(this::toRelationResponse)
-                .toList();
+                        .orderByAsc(EntityRelation::getRelationType)));
     }
 
     @Override
     @Transactional
-    public EntityRelationResponse createRelation(Long projectId, EntityRelationUpsertRequest request) {
+    public Long createRelation(Long projectId, EntityRelationUpsertRequest request) {
         requireProject(projectId);
         EntityRelation relation = new EntityRelation().setProjectId(projectId);
         applyRelation(relation, request);
         entityRelationMapper.insert(relation);
-        return toRelationResponse(relation);
+        return relation.getId();
     }
 
     @Override
     @Transactional
-    public EntityRelationResponse updateRelation(Long projectId, Long relationId, EntityRelationUpsertRequest request) {
+    public void updateRelation(Long projectId, Long relationId, EntityRelationUpsertRequest request) {
         EntityRelation relation = requireRelation(projectId, relationId);
         applyRelation(relation, request);
         entityRelationMapper.updateById(relation);
-        return toRelationResponse(relation);
     }
 
     @Override
@@ -466,32 +446,28 @@ public class SettingLibraryServiceImpl extends ServiceImpl<SettingLibraryMapper,
     @Override
     public List<StoryEventResponse> listEvents(Long projectId) {
         requireProject(projectId);
-        return storyEventMapper.selectList(new LambdaQueryWrapper<StoryEvent>()
+        return settingLibraryConverter.toEventResponseList(storyEventMapper.selectList(new LambdaQueryWrapper<StoryEvent>()
                         .eq(StoryEvent::getProjectId, projectId)
                         .orderByDesc(StoryEvent::getImportance)
-                        .orderByAsc(StoryEvent::getId))
-                .stream()
-                .map(this::toEventResponse)
-                .toList();
+                        .orderByAsc(StoryEvent::getId)));
     }
 
     @Override
     @Transactional
-    public StoryEventResponse createEvent(Long projectId, StoryEventUpsertRequest request) {
+    public Long createEvent(Long projectId, StoryEventUpsertRequest request) {
         requireProject(projectId);
         StoryEvent event = new StoryEvent().setProjectId(projectId);
         applyEvent(event, request);
         storyEventMapper.insert(event);
-        return toEventResponse(event);
+        return event.getId();
     }
 
     @Override
     @Transactional
-    public StoryEventResponse updateEvent(Long projectId, Long eventId, StoryEventUpsertRequest request) {
+    public void updateEvent(Long projectId, Long eventId, StoryEventUpsertRequest request) {
         StoryEvent event = requireEvent(projectId, eventId);
         applyEvent(event, request);
         storyEventMapper.updateById(event);
-        return toEventResponse(event);
     }
 
     @Override
@@ -503,31 +479,27 @@ public class SettingLibraryServiceImpl extends ServiceImpl<SettingLibraryMapper,
     @Override
     public List<EntityStateRecordResponse> listStateRecords(Long projectId) {
         requireProject(projectId);
-        return entityStateRecordMapper.selectList(new LambdaQueryWrapper<EntityStateRecord>()
+        return settingLibraryConverter.toStateRecordResponseList(entityStateRecordMapper.selectList(new LambdaQueryWrapper<EntityStateRecord>()
                         .eq(EntityStateRecord::getProjectId, projectId)
-                        .orderByDesc(EntityStateRecord::getCreatedAt))
-                .stream()
-                .map(this::toStateRecordResponse)
-                .toList();
+                        .orderByDesc(EntityStateRecord::getCreatedAt)));
     }
 
     @Override
     @Transactional
-    public EntityStateRecordResponse createStateRecord(Long projectId, EntityStateRecordUpsertRequest request) {
+    public Long createStateRecord(Long projectId, EntityStateRecordUpsertRequest request) {
         requireProject(projectId);
         EntityStateRecord record = new EntityStateRecord().setProjectId(projectId);
         applyStateRecord(record, request);
         entityStateRecordMapper.insert(record);
-        return toStateRecordResponse(record);
+        return record.getId();
     }
 
     @Override
     @Transactional
-    public EntityStateRecordResponse updateStateRecord(Long projectId, Long recordId, EntityStateRecordUpsertRequest request) {
+    public void updateStateRecord(Long projectId, Long recordId, EntityStateRecordUpsertRequest request) {
         EntityStateRecord record = requireStateRecord(projectId, recordId);
         applyStateRecord(record, request);
         entityStateRecordMapper.updateById(record);
-        return toStateRecordResponse(record);
     }
 
     @Override
@@ -644,8 +616,8 @@ public class SettingLibraryServiceImpl extends ServiceImpl<SettingLibraryMapper,
     }
 
     private void applyCharacter(StoryCharacter character, StoryCharacterUpsertRequest request) {
-        character.setName(request.getName())
-                .setAlias(request.getAliases())
+        settingLibraryConverter.updateCharacter(request, character);
+        character
                 .setRoleType(defaultText(request.getRoleType(), "supporting"))
                 .setNarrativeRole(defaultText(request.getNarrativeRole(), "supporting"))
                 .setIdentity(request.getIdentity())
@@ -669,242 +641,51 @@ public class SettingLibraryServiceImpl extends ServiceImpl<SettingLibraryMapper,
     }
 
     private void applyOrganization(Organization organization, OrganizationUpsertRequest request) {
-        organization.setName(request.getName())
+        settingLibraryConverter.updateOrganization(request, organization);
+        organization
                 .setOrganizationType(defaultText(request.getOrganizationType(), "faction"))
-                .setPublicMission(request.getPublicMission())
-                .setRealGoal(request.getRealGoal())
-                .setControlledResources(request.getControlledResources())
-                .setPowerScope(request.getPowerScope())
-                .setBaseLocationId(request.getBaseLocationId())
-                .setEntryRules(request.getEntryRules())
-                .setStatus(defaultText(request.getStatus(), "active"))
-                .setNotes(request.getNotes());
+                .setStatus(defaultText(request.getStatus(), "active"));
     }
 
     private void applyLocation(StoryLocation location, StoryLocationUpsertRequest request) {
-        location.setName(request.getName())
+        settingLibraryConverter.updateLocation(request, location);
+        location
                 .setLocationType(defaultText(request.getLocationType(), "place"))
-                .setParentLocationId(request.getParentLocationId())
-                .setDescription(request.getDescription())
-                .setKeyFeatures(request.getKeyFeatures())
-                .setEntryConditions(request.getEntryConditions())
-                .setAvailableResources(request.getAvailableResources())
-                .setControllingOrgId(request.getControllingOrgId())
-                .setRiskLevel(defaultText(request.getRiskLevel(), "medium"))
-                .setRules(request.getRules())
-                .setNotes(request.getNotes());
+                .setRiskLevel(defaultText(request.getRiskLevel(), "medium"));
     }
 
     private void applyItem(StoryItem item, StoryItemUpsertRequest request) {
-        item.setName(request.getName())
+        settingLibraryConverter.updateItem(request, item);
+        item
                 .setItemType(defaultText(request.getItemType(), "item"))
-                .setDescription(request.getDescription())
-                .setUsageRules(request.getUsageRules())
-                .setLimitations(request.getLimitations())
-                .setRarity(request.getRarity())
-                .setOwnerCharacterId(request.getOwnerCharacterId())
-                .setOwnerOrgId(request.getOwnerOrgId())
-                .setStatus(defaultText(request.getStatus(), "available"))
-                .setNotes(request.getNotes());
+                .setStatus(defaultText(request.getStatus(), "available"));
     }
 
     private void applyWorldRule(WorldRule worldRule, WorldRuleUpsertRequest request) {
-        worldRule.setName(request.getName())
+        settingLibraryConverter.updateWorldRule(request, worldRule);
+        worldRule
                 .setRuleType(defaultText(request.getRuleType(), "general"))
-                .setDescription(request.getDescription())
-                .setTriggerCondition(request.getTriggerCondition())
-                .setEffectResult(request.getEffectResult())
-                .setLimitations(request.getLimitations())
-                .setCost(request.getCost())
-                .setExceptions(request.getExceptions())
                 .setVisibilityLevel(defaultText(request.getVisibilityLevel(), "public"))
-                .setImportance(request.getImportance() == null ? 0 : request.getImportance())
-                .setExamples(request.getExamples())
-                .setNotes(request.getNotes());
+                .setImportance(request.getImportance() == null ? 0 : request.getImportance());
     }
 
     private void applyRelation(EntityRelation relation, EntityRelationUpsertRequest request) {
-        relation.setSourceType(request.getSourceType())
-                .setSourceId(request.getSourceId())
-                .setTargetType(request.getTargetType())
-                .setTargetId(request.getTargetId())
-                .setRelationType(request.getRelationType())
+        settingLibraryConverter.updateRelation(request, relation);
+        relation
                 .setRelationStatus(defaultText(request.getRelationStatus(), "active"))
-                .setStrengthValue(request.getStrengthValue())
-                .setVisibilityLevel(defaultText(request.getVisibilityLevel(), "public"))
-                .setNote(request.getNote())
-                .setStartEventId(request.getStartEventId())
-                .setEndEventId(request.getEndEventId());
+                .setVisibilityLevel(defaultText(request.getVisibilityLevel(), "public"));
     }
 
     private void applyEvent(StoryEvent event, StoryEventUpsertRequest request) {
-        event.setName(request.getName())
+        settingLibraryConverter.updateEvent(request, event);
+        event
                 .setEventType(defaultText(request.getEventType(), "story"))
-                .setDescription(request.getDescription())
-                .setEventTimeText(request.getEventTimeText())
-                .setLocationId(request.getLocationId())
-                .setChapterId(request.getChapterId())
                 .setIsPlanned(request.getPlanned() == null ? Boolean.TRUE : request.getPlanned())
                 .setImportance(request.getImportance() == null ? 0 : request.getImportance());
     }
 
     private void applyStateRecord(EntityStateRecord record, EntityStateRecordUpsertRequest request) {
-        record.setEntityType(request.getEntityType())
-                .setEntityId(request.getEntityId())
-                .setStateType(request.getStateType())
-                .setOldValue(request.getOldValue())
-                .setNewValue(request.getNewValue())
-                .setEventId(request.getEventId())
-                .setChapterId(request.getChapterId())
-                .setEffectiveAt(request.getEffectiveAt());
-    }
-
-    private StoryCharacterResponse toCharacterResponse(StoryCharacter character) {
-        return StoryCharacterResponse.builder()
-                .id(character.getId())
-                .projectId(character.getProjectId())
-                .name(character.getName())
-                .aliases(character.getAlias())
-                .roleType(character.getRoleType())
-                .narrativeRole(character.getNarrativeRole())
-                .identity(character.getIdentity())
-                .publicIdentity(character.getPublicIdentity())
-                .gender(character.getGender())
-                .ageText(character.getAgeText())
-                .motivation(character.getMotivation())
-                .personality(character.getPersonality())
-                .background(character.getBackground())
-                .coreGoal(character.getCoreGoal())
-                .innerNeed(character.getInnerNeed())
-                .coreFlaw(character.getCoreFlaw())
-                .bottomLine(character.getBottomLine())
-                .skillsSummary(character.getSkillsSummary())
-                .secretNotes(character.getSecretNotes())
-                .relationshipSummary(character.getRelationshipSummary())
-                .importance(character.getImportance())
-                .status(character.getStatus())
-                .firstAppearedChapterId(character.getFirstAppearedChapterId())
-                .notes(character.getNotes())
-                .build();
-    }
-
-    private OrganizationResponse toOrganizationResponse(Organization organization) {
-        return OrganizationResponse.builder()
-                .id(organization.getId())
-                .projectId(organization.getProjectId())
-                .name(organization.getName())
-                .organizationType(organization.getOrganizationType())
-                .publicMission(organization.getPublicMission())
-                .realGoal(organization.getRealGoal())
-                .controlledResources(organization.getControlledResources())
-                .powerScope(organization.getPowerScope())
-                .baseLocationId(organization.getBaseLocationId())
-                .entryRules(organization.getEntryRules())
-                .status(organization.getStatus())
-                .notes(organization.getNotes())
-                .build();
-    }
-
-    private StoryLocationResponse toLocationResponse(StoryLocation location) {
-        return StoryLocationResponse.builder()
-                .id(location.getId())
-                .projectId(location.getProjectId())
-                .name(location.getName())
-                .locationType(location.getLocationType())
-                .parentLocationId(location.getParentLocationId())
-                .description(location.getDescription())
-                .keyFeatures(location.getKeyFeatures())
-                .entryConditions(location.getEntryConditions())
-                .availableResources(location.getAvailableResources())
-                .controllingOrgId(location.getControllingOrgId())
-                .riskLevel(location.getRiskLevel())
-                .rules(location.getRules())
-                .notes(location.getNotes())
-                .build();
-    }
-
-    private StoryItemResponse toItemResponse(StoryItem item) {
-        return StoryItemResponse.builder()
-                .id(item.getId())
-                .projectId(item.getProjectId())
-                .name(item.getName())
-                .itemType(item.getItemType())
-                .description(item.getDescription())
-                .usageRules(item.getUsageRules())
-                .limitations(item.getLimitations())
-                .rarity(item.getRarity())
-                .ownerCharacterId(item.getOwnerCharacterId())
-                .ownerOrgId(item.getOwnerOrgId())
-                .status(item.getStatus())
-                .notes(item.getNotes())
-                .build();
-    }
-
-    private WorldRuleResponse toWorldRuleResponse(WorldRule worldRule) {
-        return WorldRuleResponse.builder()
-                .id(worldRule.getId())
-                .projectId(worldRule.getProjectId())
-                .name(worldRule.getName())
-                .ruleType(worldRule.getRuleType())
-                .description(worldRule.getDescription())
-                .triggerCondition(worldRule.getTriggerCondition())
-                .effectResult(worldRule.getEffectResult())
-                .limitations(worldRule.getLimitations())
-                .cost(worldRule.getCost())
-                .exceptions(worldRule.getExceptions())
-                .visibilityLevel(worldRule.getVisibilityLevel())
-                .importance(worldRule.getImportance())
-                .examples(worldRule.getExamples())
-                .notes(worldRule.getNotes())
-                .build();
-    }
-
-    private EntityRelationResponse toRelationResponse(EntityRelation relation) {
-        return EntityRelationResponse.builder()
-                .id(relation.getId())
-                .projectId(relation.getProjectId())
-                .sourceType(relation.getSourceType())
-                .sourceId(relation.getSourceId())
-                .targetType(relation.getTargetType())
-                .targetId(relation.getTargetId())
-                .relationType(relation.getRelationType())
-                .relationStatus(relation.getRelationStatus())
-                .strengthValue(relation.getStrengthValue())
-                .visibilityLevel(relation.getVisibilityLevel())
-                .note(relation.getNote())
-                .startEventId(relation.getStartEventId())
-                .endEventId(relation.getEndEventId())
-                .build();
-    }
-
-    private StoryEventResponse toEventResponse(StoryEvent event) {
-        return StoryEventResponse.builder()
-                .id(event.getId())
-                .projectId(event.getProjectId())
-                .name(event.getName())
-                .eventType(event.getEventType())
-                .description(event.getDescription())
-                .eventTimeText(event.getEventTimeText())
-                .locationId(event.getLocationId())
-                .chapterId(event.getChapterId())
-                .planned(event.getIsPlanned())
-                .importance(event.getImportance())
-                .build();
-    }
-
-    private EntityStateRecordResponse toStateRecordResponse(EntityStateRecord record) {
-        return EntityStateRecordResponse.builder()
-                .id(record.getId())
-                .projectId(record.getProjectId())
-                .entityType(record.getEntityType())
-                .entityId(record.getEntityId())
-                .stateType(record.getStateType())
-                .oldValue(record.getOldValue())
-                .newValue(record.getNewValue())
-                .eventId(record.getEventId())
-                .chapterId(record.getChapterId())
-                .effectiveAt(record.getEffectiveAt())
-                .build();
+        settingLibraryConverter.updateStateRecord(request, record);
     }
 
     private SettingLibraryResponse toResponse(SettingLibrary setting) {

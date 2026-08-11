@@ -6,6 +6,7 @@ import com.jjxmas.ainovelstudio.ai.AiGenerateResult;
 import com.jjxmas.ainovelstudio.ai.AiOrchestratorService;
 import com.jjxmas.ainovelstudio.common.exception.BusinessException;
 import com.jjxmas.ainovelstudio.common.exception.ErrorCode;
+import com.jjxmas.ainovelstudio.converter.ChapterConverter;
 import com.jjxmas.ainovelstudio.pojo.dto.ChapterContentUpdateRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.ChapterGenerateRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.ChapterResponse;
@@ -38,6 +39,7 @@ public class ChapterServiceImpl extends ServiceImpl<ChapterMapper, Chapter> impl
     private final VersionService versionService;
     private final AiOrchestratorService aiOrchestratorService;
     private final ChapterMemoryService chapterMemoryService;
+    private final ChapterConverter chapterConverter;
 
     /**
      * 注入章节流程所需的 Mapper、任务服务、版本服务、AI 编排和记忆服务。
@@ -48,13 +50,15 @@ public class ChapterServiceImpl extends ServiceImpl<ChapterMapper, Chapter> impl
             GenerationJobService generationJobService,
             VersionService versionService,
             AiOrchestratorService aiOrchestratorService,
-            ChapterMemoryService chapterMemoryService) {
+            ChapterMemoryService chapterMemoryService,
+            ChapterConverter chapterConverter) {
         this.projectMapper = projectMapper;
         this.outlineMapper = outlineMapper;
         this.generationJobService = generationJobService;
         this.versionService = versionService;
         this.aiOrchestratorService = aiOrchestratorService;
         this.chapterMemoryService = chapterMemoryService;
+        this.chapterConverter = chapterConverter;
     }
 
     /**
@@ -65,12 +69,9 @@ public class ChapterServiceImpl extends ServiceImpl<ChapterMapper, Chapter> impl
         if (projectMapper.selectById(projectId) == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "作品不存在");
         }
-        return list(new LambdaQueryWrapper<Chapter>()
-                        .eq(Chapter::getProjectId, projectId)
-                        .orderByAsc(Chapter::getChapterNo))
-                .stream()
-                .map(this::toResponse)
-                .toList();
+        return chapterConverter.toResponseList(list(new LambdaQueryWrapper<Chapter>()
+                .eq(Chapter::getProjectId, projectId)
+                .orderByAsc(Chapter::getChapterNo)));
     }
 
     /**
@@ -78,12 +79,11 @@ public class ChapterServiceImpl extends ServiceImpl<ChapterMapper, Chapter> impl
      */
     @Override
     @Transactional
-    public ChapterResponse confirmChapterOutline(Long chapterId) {
+    public void confirmChapterOutline(Long chapterId) {
         Chapter chapter = requireChapter(chapterId);
         requireConfirmedGlobalOutline(chapter.getProjectId());
         chapter.setConfirmedOutlineAt(LocalDateTime.now()).setStatus("content_pending");
         updateById(chapter);
-        return toResponse(chapter);
     }
 
     /**
@@ -130,7 +130,7 @@ public class ChapterServiceImpl extends ServiceImpl<ChapterMapper, Chapter> impl
                 Map.of("chapter", snapshot, "modelName", blankToEmpty(result.getModelName()), "usage", result.getUsage() == null ? Map.of() : result.getUsage()));
         versionService.recordVersion(chapter.getProjectId(), "chapter", chapter.getId(), snapshot, "ai_generate", "AI 生成章节正文", request.getModelConfigId(), jobId);
         chapterMemoryService.refreshAfterChapterContent(chapter, request.getModelConfigId());
-        return toResponse(chapter);
+        return chapterConverter.toResponse(chapter);
     }
 
     /**
@@ -138,7 +138,7 @@ public class ChapterServiceImpl extends ServiceImpl<ChapterMapper, Chapter> impl
      */
     @Override
     @Transactional
-    public ChapterResponse updateChapterContent(Long chapterId, ChapterContentUpdateRequest request) {
+    public void updateChapterContent(Long chapterId, ChapterContentUpdateRequest request) {
         Chapter chapter = requireChapter(chapterId);
         chapter.setContent(request.getContent())
                 .setWordCount(countWords(request.getContent()))
@@ -154,7 +154,6 @@ public class ChapterServiceImpl extends ServiceImpl<ChapterMapper, Chapter> impl
                 null,
                 null);
         chapterMemoryService.refreshAfterChapterContent(chapter, null);
-        return toResponse(chapter);
     }
 
     /**
@@ -187,7 +186,7 @@ public class ChapterServiceImpl extends ServiceImpl<ChapterMapper, Chapter> impl
                 Map.of("chapter", snapshot, "modelName", blankToEmpty(result.getModelName()), "usage", result.getUsage() == null ? Map.of() : result.getUsage()));
         versionService.recordVersion(chapter.getProjectId(), "chapter", chapter.getId(), snapshot, "ai_rewrite", "根据用户修改意见重生成章节正文", request.getModelConfigId(), jobId);
         chapterMemoryService.refreshAfterChapterContent(chapter, request.getModelConfigId());
-        return toResponse(chapter);
+        return chapterConverter.toResponse(chapter);
     }
 
     /**
@@ -217,19 +216,6 @@ public class ChapterServiceImpl extends ServiceImpl<ChapterMapper, Chapter> impl
     /**
      * 将章节实体转换为章节响应对象。
      */
-    private ChapterResponse toResponse(Chapter chapter) {
-        return ChapterResponse.builder()
-                .id(chapter.getId())
-                .chapterNo(chapter.getChapterNo())
-                .title(chapter.getTitle())
-                .outline(chapter.getOutline())
-                .content(chapter.getContent())
-                .wordCount(chapter.getWordCount())
-                .status(chapter.getStatus())
-                .outlineConfirmed(chapter.getConfirmedOutlineAt() != null)
-                .build();
-    }
-
     /**
      * 构造章节版本快照内容。
      */

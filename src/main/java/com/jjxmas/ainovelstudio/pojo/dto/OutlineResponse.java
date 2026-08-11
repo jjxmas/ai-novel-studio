@@ -14,6 +14,8 @@ public class OutlineResponse {
 
     private Long id;
 
+    private Long projectId;
+
     private String outlineLevel;
 
     private String title;
@@ -24,4 +26,3 @@ public class OutlineResponse {
 
     private List<VolumeOutlineResponse> volumes;
 }
-

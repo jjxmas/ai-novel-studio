@@ -37,7 +37,7 @@ public class ProjectController {
      * 创建新的小说作品项目。
      */
     @PostMapping
-    public ApiResponse<ProjectResponse> createProject(@Valid @RequestBody ProjectCreateRequest request) {
+    public ApiResponse<Long> createProject(@Valid @RequestBody ProjectCreateRequest request) {
         return ApiResponse.success("作品创建成功", projectService.createProject(request));
     }
 
@@ -45,10 +45,11 @@ public class ProjectController {
      * 修改小说作品项目的基础信息。
      */
     @PatchMapping("/{projectId}")
-    public ApiResponse<ProjectResponse> updateProject(
+    public ApiResponse<Void> updateProject(
             @PathVariable Long projectId,
             @Valid @RequestBody ProjectCreateRequest request) {
-        return ApiResponse.success("作品修改成功", projectService.updateProject(projectId, request));
+        projectService.updateProject(projectId, request);
+        return ApiResponse.success("作品修改成功", null);
     }
 
     /**

@@ -4,7 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.jjxmas.ainovelstudio.common.exception.BusinessException;
 import com.jjxmas.ainovelstudio.common.exception.ErrorCode;
-import com.jjxmas.ainovelstudio.common.util.JsonUtils;
+import com.jjxmas.ainovelstudio.converter.ProjectConverter;
 import com.jjxmas.ainovelstudio.pojo.dto.ProjectCreateRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.ProjectResponse;
 import com.jjxmas.ainovelstudio.pojo.entity.Project;
@@ -18,33 +18,27 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-@Service
-@RequiredArgsConstructor
 /**
  * 作品项目服务实现，处理项目持久化和响应转换。
  */
+@Service
+@RequiredArgsConstructor
 public class ProjectServiceImpl extends ServiceImpl<ProjectMapper, Project> implements ProjectService {
 
     private final VersionService versionService;
+    private final ProjectConverter projectConverter;
 
     /**
      * 创建作品项目并保存初始项目状态。
      */
     @Override
     @Transactional
-    public ProjectResponse createProject(ProjectCreateRequest request) {
-        Project project = new Project()
-                .setTitle(request.getTitle())
-                .setGenres(JsonUtils.toJson(request.getGenres()))
-                .setTargetWordCountMin(defaultNumber(request.getTargetWordCountMin()))
-                .setTargetWordCountMax(defaultNumber(request.getTargetWordCountMax()))
-                .setTargetChapterWordCount(defaultChapterWordCount(request.getTargetChapterWordCount()))
-                .setPlatformTarget(defaultText(request.getPlatformTarget(), "general"))
-                .setStylePreference(request.getStylePreference())
-                .setProjectBrief(request.getProjectBrief())
-                .setStatus("drafting");
+    public Long createProject(ProjectCreateRequest request) {
+        Project project = new Project();
+        projectConverter.updateEntity(request, project);
+        applyDefaults(project);
         save(project);
-        return toResponse(project);
+        return project.getId();
     }
 
     /**
@@ -52,17 +46,10 @@ public class ProjectServiceImpl extends ServiceImpl<ProjectMapper, Project> impl
      */
     @Override
     @Transactional
-    public ProjectResponse updateProject(Long projectId, ProjectCreateRequest request) {
+    public void updateProject(Long projectId, ProjectCreateRequest request) {
         Project project = requireProject(projectId);
-        project
-                .setTitle(request.getTitle())
-                .setGenres(JsonUtils.toJson(request.getGenres()))
-                .setTargetWordCountMin(defaultNumber(request.getTargetWordCountMin()))
-                .setTargetWordCountMax(defaultNumber(request.getTargetWordCountMax()))
-                .setTargetChapterWordCount(defaultChapterWordCount(request.getTargetChapterWordCount()))
-                .setPlatformTarget(defaultText(request.getPlatformTarget(), "general"))
-                .setStylePreference(request.getStylePreference())
-                .setProjectBrief(request.getProjectBrief());
+        projectConverter.updateEntity(request, project);
+        applyDefaults(project);
         updateById(project);
         versionService.recordVersion(
                 project.getId(),
@@ -73,7 +60,6 @@ public class ProjectServiceImpl extends ServiceImpl<ProjectMapper, Project> impl
                 "用户修改作品基础信息",
                 null,
                 null);
-        return toResponse(project);
     }
 
     /**
@@ -89,10 +75,8 @@ public class ProjectServiceImpl extends ServiceImpl<ProjectMapper, Project> impl
      */
     @Override
     public List<ProjectResponse> listProjects() {
-        return list(new LambdaQueryWrapper<Project>().orderByDesc(Project::getUpdatedAt))
-                .stream()
-                .map(this::toResponse)
-                .toList();
+        return projectConverter.toResponseList(list(new LambdaQueryWrapper<Project>()
+                .orderByDesc(Project::getUpdatedAt)));
     }
 
     /**
@@ -110,19 +94,17 @@ public class ProjectServiceImpl extends ServiceImpl<ProjectMapper, Project> impl
      * 将项目实体转换为项目响应对象。
      */
     private ProjectResponse toResponse(Project project) {
-        return ProjectResponse.builder()
-                .id(project.getId())
-                .title(project.getTitle())
-                .genres(JsonUtils.toStringList(project.getGenres()))
-                .targetWordCountMin(project.getTargetWordCountMin())
-                .targetWordCountMax(project.getTargetWordCountMax())
-                .targetChapterWordCount(project.getTargetChapterWordCount())
-                .platformTarget(project.getPlatformTarget())
-                .stylePreference(project.getStylePreference())
-                .projectBrief(project.getProjectBrief())
-                .status(project.getStatus())
-                .selectedIdeaId(project.getSelectedIdeaId())
-                .build();
+        return projectConverter.toResponse(project);
+    }
+
+    private void applyDefaults(Project project) {
+        project.setTargetWordCountMin(defaultNumber(project.getTargetWordCountMin()))
+                .setTargetWordCountMax(defaultNumber(project.getTargetWordCountMax()))
+                .setTargetChapterWordCount(defaultChapterWordCount(project.getTargetChapterWordCount()))
+                .setPlatformTarget(defaultText(project.getPlatformTarget(), "general"));
+        if (project.getStatus() == null) {
+            project.setStatus("drafting");
+        }
     }
 
     /**
@@ -131,7 +113,7 @@ public class ProjectServiceImpl extends ServiceImpl<ProjectMapper, Project> impl
     private Map<String, Object> projectSnapshot(Project project) {
         Map<String, Object> snapshot = new LinkedHashMap<>();
         snapshot.put("title", project.getTitle());
-        snapshot.put("genres", JsonUtils.toStringList(project.getGenres()));
+        snapshot.put("genres", project.getGenres() == null ? List.of() : project.getGenres());
         snapshot.put("targetWordCountMin", project.getTargetWordCountMin());
         snapshot.put("targetWordCountMax", project.getTargetWordCountMax());
         snapshot.put("targetChapterWordCount", project.getTargetChapterWordCount());

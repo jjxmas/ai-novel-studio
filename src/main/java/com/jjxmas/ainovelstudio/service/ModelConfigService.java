@@ -2,6 +2,7 @@ package com.jjxmas.ainovelstudio.service;
 
 import com.jjxmas.ainovelstudio.pojo.dto.ModelConfigCreateRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.ModelConfigResponse;
+import com.jjxmas.ainovelstudio.pojo.dto.ModelConfigUpdateRequest;
 import java.util.List;
 
 /**
@@ -12,12 +13,12 @@ public interface ModelConfigService {
     /**
      * 新增并保存模型配置。
      */
-    ModelConfigResponse saveModelConfig(ModelConfigCreateRequest request);
+    Long saveModelConfig(ModelConfigCreateRequest request);
 
     /**
      * 更新指定模型配置。
      */
-    ModelConfigResponse updateModelConfig(Long modelConfigId, ModelConfigCreateRequest request);
+    void updateModelConfig(Long modelConfigId, ModelConfigUpdateRequest request);
 
     /**
      * 查询全部模型配置。
@@ -27,10 +28,10 @@ public interface ModelConfigService {
     /**
      * 将指定模型配置设置为默认模型。
      */
-    ModelConfigResponse setDefaultModel(Long modelConfigId);
+    void setDefaultModel(Long modelConfigId);
 
     /**
      * 禁用指定模型配置。
      */
-    ModelConfigResponse disableModelConfig(Long modelConfigId);
+    void disableModelConfig(Long modelConfigId);
 }

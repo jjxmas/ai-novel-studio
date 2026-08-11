@@ -40,65 +40,65 @@ public interface SettingLibraryService {
 
     List<StoryCharacterResponse> listCharacters(Long projectId);
 
-    StoryCharacterResponse createCharacter(Long projectId, StoryCharacterUpsertRequest request);
+    Long createCharacter(Long projectId, StoryCharacterUpsertRequest request);
 
-    StoryCharacterResponse updateCharacter(Long projectId, Long characterId, StoryCharacterUpsertRequest request);
+    void updateCharacter(Long projectId, Long characterId, StoryCharacterUpsertRequest request);
 
     void deleteCharacter(Long projectId, Long characterId);
 
     List<OrganizationResponse> listOrganizations(Long projectId);
 
-    OrganizationResponse createOrganization(Long projectId, OrganizationUpsertRequest request);
+    Long createOrganization(Long projectId, OrganizationUpsertRequest request);
 
-    OrganizationResponse updateOrganization(Long projectId, Long organizationId, OrganizationUpsertRequest request);
+    void updateOrganization(Long projectId, Long organizationId, OrganizationUpsertRequest request);
 
     void deleteOrganization(Long projectId, Long organizationId);
 
     List<StoryLocationResponse> listLocations(Long projectId);
 
-    StoryLocationResponse createLocation(Long projectId, StoryLocationUpsertRequest request);
+    Long createLocation(Long projectId, StoryLocationUpsertRequest request);
 
-    StoryLocationResponse updateLocation(Long projectId, Long locationId, StoryLocationUpsertRequest request);
+    void updateLocation(Long projectId, Long locationId, StoryLocationUpsertRequest request);
 
     void deleteLocation(Long projectId, Long locationId);
 
     List<StoryItemResponse> listItems(Long projectId);
 
-    StoryItemResponse createItem(Long projectId, StoryItemUpsertRequest request);
+    Long createItem(Long projectId, StoryItemUpsertRequest request);
 
-    StoryItemResponse updateItem(Long projectId, Long itemId, StoryItemUpsertRequest request);
+    void updateItem(Long projectId, Long itemId, StoryItemUpsertRequest request);
 
     void deleteItem(Long projectId, Long itemId);
 
     List<WorldRuleResponse> listWorldRules(Long projectId);
 
-    WorldRuleResponse createWorldRule(Long projectId, WorldRuleUpsertRequest request);
+    Long createWorldRule(Long projectId, WorldRuleUpsertRequest request);
 
-    WorldRuleResponse updateWorldRule(Long projectId, Long ruleId, WorldRuleUpsertRequest request);
+    void updateWorldRule(Long projectId, Long ruleId, WorldRuleUpsertRequest request);
 
     void deleteWorldRule(Long projectId, Long ruleId);
 
     List<EntityRelationResponse> listRelations(Long projectId);
 
-    EntityRelationResponse createRelation(Long projectId, EntityRelationUpsertRequest request);
+    Long createRelation(Long projectId, EntityRelationUpsertRequest request);
 
-    EntityRelationResponse updateRelation(Long projectId, Long relationId, EntityRelationUpsertRequest request);
+    void updateRelation(Long projectId, Long relationId, EntityRelationUpsertRequest request);
 
     void deleteRelation(Long projectId, Long relationId);
 
     List<StoryEventResponse> listEvents(Long projectId);
 
-    StoryEventResponse createEvent(Long projectId, StoryEventUpsertRequest request);
+    Long createEvent(Long projectId, StoryEventUpsertRequest request);
 
-    StoryEventResponse updateEvent(Long projectId, Long eventId, StoryEventUpsertRequest request);
+    void updateEvent(Long projectId, Long eventId, StoryEventUpsertRequest request);
 
     void deleteEvent(Long projectId, Long eventId);
 
     List<EntityStateRecordResponse> listStateRecords(Long projectId);
 
-    EntityStateRecordResponse createStateRecord(Long projectId, EntityStateRecordUpsertRequest request);
+    Long createStateRecord(Long projectId, EntityStateRecordUpsertRequest request);
 
-    EntityStateRecordResponse updateStateRecord(Long projectId, Long recordId, EntityStateRecordUpsertRequest request);
+    void updateStateRecord(Long projectId, Long recordId, EntityStateRecordUpsertRequest request);
 
     void deleteStateRecord(Long projectId, Long recordId);
 }

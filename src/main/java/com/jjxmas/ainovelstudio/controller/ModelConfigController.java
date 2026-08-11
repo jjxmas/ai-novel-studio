@@ -2,7 +2,9 @@ package com.jjxmas.ainovelstudio.controller;
 
 import com.jjxmas.ainovelstudio.common.api.ApiResponse;
 import com.jjxmas.ainovelstudio.pojo.dto.ModelConfigCreateRequest;
+import com.jjxmas.ainovelstudio.pojo.dto.ModelConfigCreatedResponse;
 import com.jjxmas.ainovelstudio.pojo.dto.ModelConfigResponse;
+import com.jjxmas.ainovelstudio.pojo.dto.ModelConfigUpdateRequest;
 import com.jjxmas.ainovelstudio.service.ModelConfigService;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -38,18 +40,20 @@ public class ModelConfigController {
      * 新增并保存模型配置。
      */
     @PostMapping
-    public ApiResponse<ModelConfigResponse> saveModelConfig(@Valid @RequestBody ModelConfigCreateRequest request) {
-        return ApiResponse.success("模型配置保存成功", modelConfigService.saveModelConfig(request));
+    public ApiResponse<ModelConfigCreatedResponse> saveModelConfig(@Valid @RequestBody ModelConfigCreateRequest request) {
+        return ApiResponse.success("模型配置保存成功",
+                new ModelConfigCreatedResponse(modelConfigService.saveModelConfig(request)));
     }
 
     /**
      * 更新指定模型配置。
      */
     @PatchMapping("/{modelConfigId}")
-    public ApiResponse<ModelConfigResponse> updateModelConfig(
+    public ApiResponse<Void> updateModelConfig(
             @PathVariable Long modelConfigId,
-            @RequestBody ModelConfigCreateRequest request) {
-        return ApiResponse.success("模型配置修改成功", modelConfigService.updateModelConfig(modelConfigId, request));
+            @Valid @RequestBody ModelConfigUpdateRequest request) {
+        modelConfigService.updateModelConfig(modelConfigId, request);
+        return ApiResponse.success("模型配置修改成功", null);
     }
 
     /**
@@ -64,15 +68,17 @@ public class ModelConfigController {
      * 将指定模型配置设为默认模型。
      */
     @PostMapping("/{modelConfigId}/default")
-    public ApiResponse<ModelConfigResponse> setDefaultModel(@PathVariable Long modelConfigId) {
-        return ApiResponse.success("默认模型设置成功", modelConfigService.setDefaultModel(modelConfigId));
+    public ApiResponse<Void> setDefaultModel(@PathVariable Long modelConfigId) {
+        modelConfigService.setDefaultModel(modelConfigId);
+        return ApiResponse.success("默认模型设置成功", null);
     }
 
     /**
      * 禁用指定模型配置。
      */
     @DeleteMapping("/{modelConfigId}")
-    public ApiResponse<ModelConfigResponse> disableModelConfig(@PathVariable Long modelConfigId) {
-        return ApiResponse.success("模型配置已禁用", modelConfigService.disableModelConfig(modelConfigId));
+    public ApiResponse<Void> disableModelConfig(@PathVariable Long modelConfigId) {
+        modelConfigService.disableModelConfig(modelConfigId);
+        return ApiResponse.success("模型配置已禁用", null);
     }
 }

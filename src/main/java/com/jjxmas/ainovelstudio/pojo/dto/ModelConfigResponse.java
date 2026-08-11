@@ -1,12 +1,10 @@
 package com.jjxmas.ainovelstudio.pojo.dto;
 
 import lombok.AllArgsConstructor;
-import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
 @Data
-@Builder
 @NoArgsConstructor
 @AllArgsConstructor
 public class ModelConfigResponse {
@@ -29,4 +27,3 @@ public class ModelConfigResponse {
 
     private Boolean enabled;
 }
-

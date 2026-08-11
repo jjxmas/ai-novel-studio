@@ -7,6 +7,7 @@ import com.jjxmas.ainovelstudio.ai.AiOrchestratorService;
 import com.jjxmas.ainovelstudio.common.exception.BusinessException;
 import com.jjxmas.ainovelstudio.common.exception.ErrorCode;
 import com.jjxmas.ainovelstudio.common.util.JsonUtils;
+import com.jjxmas.ainovelstudio.converter.ChapterMemoryConverter;
 import com.jjxmas.ainovelstudio.pojo.entity.Chapter;
 import com.jjxmas.ainovelstudio.mapper.ChapterMapper;
 import com.jjxmas.ainovelstudio.service.GenerationJobService;
@@ -41,6 +42,7 @@ public class ChapterMemoryServiceImpl implements ChapterMemoryService {
 
     private static final int RECENT_WINDOW_SIZE = 6;
     private static final int MIDDLE_COMPRESSION_SIZE = 8;
+    private static final int PREVIOUS_CHAPTER_TAIL_LENGTH = 1600;
 
     private final ChapterSummaryMapper chapterSummaryMapper;
     private final ChapterMapper chapterMapper;
@@ -51,6 +53,7 @@ public class ChapterMemoryServiceImpl implements ChapterMemoryService {
     private final AiOrchestratorService aiOrchestratorService;
     private final GenerationJobService generationJobService;
     private final VersionService versionService;
+    private final ChapterMemoryConverter chapterMemoryConverter;
 
     /**
      * 注入记忆流程所需的 Mapper、AI 编排、任务和版本服务。
@@ -64,7 +67,8 @@ public class ChapterMemoryServiceImpl implements ChapterMemoryService {
             OutlineMapper outlineMapper,
             AiOrchestratorService aiOrchestratorService,
             GenerationJobService generationJobService,
-            VersionService versionService) {
+            VersionService versionService,
+            ChapterMemoryConverter chapterMemoryConverter) {
         this.chapterSummaryMapper = chapterSummaryMapper;
         this.chapterMapper = chapterMapper;
         this.storyMemoryMapper = storyMemoryMapper;
@@ -74,6 +78,7 @@ public class ChapterMemoryServiceImpl implements ChapterMemoryService {
         this.aiOrchestratorService = aiOrchestratorService;
         this.generationJobService = generationJobService;
         this.versionService = versionService;
+        this.chapterMemoryConverter = chapterMemoryConverter;
     }
 
     /**
@@ -100,14 +105,19 @@ public class ChapterMemoryServiceImpl implements ChapterMemoryService {
         Map<String, Object> context = new LinkedHashMap<>();
         context.put("作品信息", projectContext(project));
         context.put("设定库摘要", settingLibrary == null ? "" : blankToEmpty(settingLibrary.getSummary()));
+        context.put("设定库总览", settingLibrary == null ? "" : blankToEmpty(settingLibrary.getOverview()));
         context.put("全局大纲", outline == null ? "" : blankToEmpty(outline.getContent()));
         context.put("当前章节", Map.of(
                 "chapterNo", chapter.getChapterNo() == null ? 0 : chapter.getChapterNo(),
                 "title", blankToEmpty(chapter.getTitle()),
                 "outline", blankToEmpty(chapter.getOutline()),
                 "scenePlan", blankToEmpty(chapter.getScenePlan())));
-        context.put("上一章摘要", previousSummary == null ? "" : blankToEmpty(previousSummary.getSummary()));
-        context.put("上一章结尾片段", previousChapter == null ? "" : tailText(previousChapter.getContent(), 500));
+        context.put("上一章连续性", previousChapterContext(previousChapter, previousSummary));
+        context.put("本章承接契约", Map.of(
+                "必须承接上一章结尾", true,
+                "开头要求", "从上一章最后的动作、对白或现场状态直接开始，不要重新开场",
+                "必须保持", List.of("人物当前状态", "时间线", "地点", "未解决目标", "设定代价"),
+                "本章任务", "完成当前章节大纲中的目标、阻碍和推进结果，并留下自然钩子"));
         context.put("全局总摘要", globalMemory == null ? "" : blankToEmpty(globalMemory.getContent()));
         context.put("高层摘要", highMemories.stream().map(this::memoryText).toList());
         context.put("中层摘要", middleMemories.stream().map(this::memoryText).toList());
@@ -133,6 +143,33 @@ public class ChapterMemoryServiceImpl implements ChapterMemoryService {
             return text;
         }
         return text.substring(text.length() - maxLength);
+    }
+
+    private Map<String, Object> previousChapterContext(Chapter previousChapter, ChapterSummary previousSummary) {
+        if (previousChapter == null) {
+            return Map.of(
+                    "存在上一章", false,
+                    "说明", "这是第一章，不需要承接上一章");
+        }
+        Map<String, Object> context = new LinkedHashMap<>();
+        context.put("存在上一章", true);
+        context.put("章节号", previousChapter.getChapterNo() == null ? 0 : previousChapter.getChapterNo());
+        context.put("标题", blankToEmpty(previousChapter.getTitle()));
+        context.put("摘要", previousSummary == null ? "" : blankToEmpty(previousSummary.getSummary()));
+        context.put("关键事件", previousSummary == null
+                ? List.of()
+                : JsonUtils.toStringList(previousSummary.getKeyEvents()));
+        context.put("人物变化", previousSummary == null
+                ? List.of()
+                : JsonUtils.toStringList(previousSummary.getCharacterChanges()));
+        context.put("地点变化", previousSummary == null
+                ? List.of()
+                : JsonUtils.toStringList(previousSummary.getLocationChanges()));
+        context.put("伏笔变化", previousSummary == null
+                ? List.of()
+                : JsonUtils.toStringList(previousSummary.getForeshadowChanges()));
+        context.put("结尾片段", tailText(previousChapter.getContent(), PREVIOUS_CHAPTER_TAIL_LENGTH));
+        return context;
     }
 
     /**
@@ -165,11 +202,11 @@ public class ChapterMemoryServiceImpl implements ChapterMemoryService {
         }
         return ProjectMemoryResponse.builder()
                 .projectId(projectId)
-                .globalMemory(toStoryMemoryResponse(currentGlobalMemory(projectId)))
-                .highMemories(currentMemories(projectId, "high", 8).stream().map(this::toStoryMemoryResponse).toList())
-                .middleMemories(currentMemories(projectId, "middle", 8).stream().map(this::toStoryMemoryResponse).toList())
-                .recentWindows(currentMemories(projectId, "recent_window", 1).stream().map(this::toStoryMemoryResponse).toList())
-                .recentChapterSummaries(recentSummaries(projectId).stream().map(this::toChapterSummaryResponse).toList())
+                .globalMemory(chapterMemoryConverter.toStoryMemoryResponse(currentGlobalMemory(projectId)))
+                .highMemories(chapterMemoryConverter.toStoryMemoryResponseList(currentMemories(projectId, "high", 8)))
+                .middleMemories(chapterMemoryConverter.toStoryMemoryResponseList(currentMemories(projectId, "middle", 8)))
+                .recentWindows(chapterMemoryConverter.toStoryMemoryResponseList(currentMemories(projectId, "recent_window", 1)))
+                .recentChapterSummaries(chapterMemoryConverter.toChapterSummaryResponseList(recentSummaries(projectId)))
                 .build();
     }
 
@@ -178,7 +215,18 @@ public class ChapterMemoryServiceImpl implements ChapterMemoryService {
      */
     private ChapterSummary upsertChapterSummary(Chapter chapter, Long modelConfigId) {
         AiGenerateResult result = aiOrchestratorService.summarizeChapter(modelConfigId, blankToEmpty(chapter.getTitle()), blankToEmpty(chapter.getContent()));
-        String content = blankToDefault(result.getContent(), "本章已生成正文，摘要暂由系统占位。");
+        Map<String, Object> structured = JsonUtils.toMap(result.getContent());
+        String content = structured.isEmpty()
+                ? blankToDefault(result.getContent(), "本章已生成正文，摘要暂由系统占位。")
+                : blankToDefault(textValue(structured.get("summary")), blankToDefault(result.getContent(), "本章摘要为空。"));
+        String endingState = textValue(structured.get("endingState"));
+        String unresolvedThreads = textListValue(structured.get("unresolvedThreads"));
+        if (!endingState.isBlank()) {
+            content += "\n章末状态：" + endingState;
+        }
+        if (!unresolvedThreads.isBlank()) {
+            content += "\n未解决事项：" + unresolvedThreads;
+        }
         Map<String, Object> output = Map.of("summary", content, "modelName", blankToEmpty(result.getModelName()));
         Long jobId = generationJobService.recordFinishedJob(
                 chapter.getProjectId(),
@@ -197,10 +245,10 @@ public class ChapterMemoryServiceImpl implements ChapterMemoryService {
                 .setChapterId(chapter.getId())
                 .setChapterNo(chapter.getChapterNo())
                 .setSummary(content)
-                .setKeyEvents(JsonUtils.toJson(List.of("关键事件见摘要正文")))
-                .setCharacterChanges(JsonUtils.toJson(List.of("人物变化见摘要正文")))
-                .setLocationChanges(JsonUtils.toJson(List.of("地点变化见摘要正文")))
-                .setForeshadowChanges(JsonUtils.toJson(List.of("伏笔变化见摘要正文")))
+                .setKeyEvents(jsonListField(structured, "keyEvents", "关键事件见摘要正文"))
+                .setCharacterChanges(jsonListField(structured, "characterChanges", "人物变化见摘要正文"))
+                .setLocationChanges(jsonListField(structured, "locationChanges", "地点变化见摘要正文"))
+                .setForeshadowChanges(jsonListField(structured, "foreshadowChanges", "伏笔变化见摘要正文"))
                 .setGenerationJobId(jobId);
         if (existing == null) {
             chapterSummaryMapper.insert(summary);
@@ -485,7 +533,7 @@ public class ChapterMemoryServiceImpl implements ChapterMemoryService {
         }
         Map<String, Object> context = new LinkedHashMap<>();
         context.put("标题", blankToEmpty(project.getTitle()));
-        context.put("类型", blankToEmpty(project.getGenres()));
+        context.put("类型", joinGenres(project.getGenres()));
         context.put("平台", blankToEmpty(project.getPlatformTarget()));
         context.put("目标字数下限", project.getTargetWordCountMin() == null ? 0 : project.getTargetWordCountMin());
         context.put("目标字数上限", project.getTargetWordCountMax() == null ? 0 : project.getTargetWordCountMax());
@@ -531,6 +579,29 @@ public class ChapterMemoryServiceImpl implements ChapterMemoryService {
      */
     private String blankToEmpty(String value) {
         return value == null ? "" : value;
+    }
+
+    private String textValue(Object value) {
+        return value == null ? "" : String.valueOf(value);
+    }
+
+    private String textListValue(Object value) {
+        if (!(value instanceof List<?> list)) {
+            return textValue(value);
+        }
+        return list.stream().map(this::textValue).filter(text -> !text.isBlank()).collect(Collectors.joining("；"));
+    }
+
+    private String jsonListField(Map<String, Object> source, String key, String fallback) {
+        Object value = source.get(key);
+        if (value instanceof List<?> list) {
+            return JsonUtils.toJson(list);
+        }
+        return JsonUtils.toJson(List.of(fallback));
+    }
+
+    private String joinGenres(List<String> genres) {
+        return genres == null || genres.isEmpty() ? "" : String.join(" + ", genres);
     }
 
     /**

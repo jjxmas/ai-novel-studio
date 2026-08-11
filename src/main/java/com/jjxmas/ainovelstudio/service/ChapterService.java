@@ -19,7 +19,7 @@ public interface ChapterService {
     /**
      * 确认指定章节的大纲。
      */
-    ChapterResponse confirmChapterOutline(Long chapterId);
+    void confirmChapterOutline(Long chapterId);
 
     /**
      * 根据章节生成请求生成正文。
@@ -29,7 +29,7 @@ public interface ChapterService {
     /**
      * 更新指定章节的正文内容。
      */
-    ChapterResponse updateChapterContent(Long chapterId, ChapterContentUpdateRequest request);
+    void updateChapterContent(Long chapterId, ChapterContentUpdateRequest request);
 
     /**
      * 根据重写指令重新生成章节正文。

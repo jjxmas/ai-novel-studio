@@ -5,6 +5,8 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.jjxmas.ainovelstudio.common.exception.BusinessException;
 import com.jjxmas.ainovelstudio.common.exception.ErrorCode;
 import com.jjxmas.ainovelstudio.common.util.JsonUtils;
+import com.jjxmas.ainovelstudio.converter.ChapterConverter;
+import com.jjxmas.ainovelstudio.converter.OutlineConverter;
 import com.jjxmas.ainovelstudio.pojo.dto.ChapterResponse;
 import com.jjxmas.ainovelstudio.pojo.entity.Chapter;
 import com.jjxmas.ainovelstudio.mapper.ChapterMapper;
@@ -13,7 +15,6 @@ import com.jjxmas.ainovelstudio.pojo.dto.OutlineGenerateRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.OutlineResponse;
 import com.jjxmas.ainovelstudio.pojo.dto.OutlineRewriteRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.OutlineUpdateRequest;
-import com.jjxmas.ainovelstudio.pojo.dto.VolumeOutlineResponse;
 import com.jjxmas.ainovelstudio.pojo.entity.Outline;
 import com.jjxmas.ainovelstudio.pojo.entity.StoryArc;
 import com.jjxmas.ainovelstudio.pojo.entity.Volume;
@@ -45,6 +46,8 @@ public class OutlineServiceImpl extends ServiceImpl<OutlineMapper, Outline> impl
     private final ChapterMapper chapterMapper;
     private final GenerationJobService generationJobService;
     private final VersionService versionService;
+    private final OutlineConverter outlineConverter;
+    private final ChapterConverter chapterConverter;
 
     /**
      * 注入大纲流程所需的 Mapper、任务服务和版本服务。
@@ -56,7 +59,9 @@ public class OutlineServiceImpl extends ServiceImpl<OutlineMapper, Outline> impl
             StoryArcMapper storyArcMapper,
             ChapterMapper chapterMapper,
             GenerationJobService generationJobService,
-            VersionService versionService) {
+            VersionService versionService,
+            OutlineConverter outlineConverter,
+            ChapterConverter chapterConverter) {
         this.projectMapper = projectMapper;
         this.settingLibraryMapper = settingLibraryMapper;
         this.volumeMapper = volumeMapper;
@@ -64,6 +69,8 @@ public class OutlineServiceImpl extends ServiceImpl<OutlineMapper, Outline> impl
         this.chapterMapper = chapterMapper;
         this.generationJobService = generationJobService;
         this.versionService = versionService;
+        this.outlineConverter = outlineConverter;
+        this.chapterConverter = chapterConverter;
     }
 
     /**
@@ -130,7 +137,7 @@ public class OutlineServiceImpl extends ServiceImpl<OutlineMapper, Outline> impl
      */
     @Override
     @Transactional
-    public OutlineResponse updateGlobalOutline(Long projectId, OutlineUpdateRequest request) {
+    public void updateGlobalOutline(Long projectId, OutlineUpdateRequest request) {
         Outline outline = requireOutline(projectId);
         outline.setTitle(request.getTitle()).setContent(request.getContent()).setConfirmedAt(null);
         updateById(outline);
@@ -143,7 +150,6 @@ public class OutlineServiceImpl extends ServiceImpl<OutlineMapper, Outline> impl
                 request.getChangeNote() == null ? "用户直接修改全局大纲" : request.getChangeNote(),
                 null,
                 null);
-        return toResponse(outline);
     }
 
     /**
@@ -151,9 +157,9 @@ public class OutlineServiceImpl extends ServiceImpl<OutlineMapper, Outline> impl
      */
     @Override
     @Transactional
-    public OutlineResponse updateGlobalOutlineById(Long outlineId, OutlineUpdateRequest request) {
+    public void updateGlobalOutlineById(Long outlineId, OutlineUpdateRequest request) {
         Outline outline = requireOutlineById(outlineId);
-        return updateGlobalOutline(outline.getProjectId(), request);
+        updateGlobalOutline(outline.getProjectId(), request);
     }
 
     /**
@@ -184,7 +190,7 @@ public class OutlineServiceImpl extends ServiceImpl<OutlineMapper, Outline> impl
      */
     @Override
     @Transactional
-    public OutlineResponse confirmGlobalOutline(Long projectId) {
+    public void confirmGlobalOutline(Long projectId) {
         Outline outline = requireOutline(projectId);
         outline.setConfirmedAt(LocalDateTime.now());
         updateById(outline);
@@ -200,7 +206,6 @@ public class OutlineServiceImpl extends ServiceImpl<OutlineMapper, Outline> impl
                 "确认全局大纲",
                 null,
                 null);
-        return toResponse(outline);
     }
 
     /**
@@ -208,9 +213,9 @@ public class OutlineServiceImpl extends ServiceImpl<OutlineMapper, Outline> impl
      */
     @Override
     @Transactional
-    public OutlineResponse confirmGlobalOutlineById(Long outlineId) {
+    public void confirmGlobalOutlineById(Long outlineId) {
         Outline outline = requireOutlineById(outlineId);
-        return confirmGlobalOutline(outline.getProjectId());
+        confirmGlobalOutline(outline.getProjectId());
     }
 
     /**
@@ -282,14 +287,7 @@ public class OutlineServiceImpl extends ServiceImpl<OutlineMapper, Outline> impl
                 "mock 生成章节大纲",
                 null,
                 null);
-        return ChapterResponse.builder()
-                .id(chapter.getId())
-                .chapterNo(chapter.getChapterNo())
-                .title(chapter.getTitle())
-                .outline(chapter.getOutline())
-                .content(chapter.getContent())
-                .status(chapter.getStatus())
-                .build();
+        return chapterConverter.toResponse(chapter);
     }
 
     /**
@@ -362,27 +360,11 @@ public class OutlineServiceImpl extends ServiceImpl<OutlineMapper, Outline> impl
      * 将大纲实体和卷信息转换为响应对象。
      */
     private OutlineResponse toResponse(Outline outline) {
-        List<VolumeOutlineResponse> volumes = volumeMapper.selectList(new LambdaQueryWrapper<Volume>()
-                        .eq(Volume::getProjectId, outline.getProjectId())
-                        .orderByAsc(Volume::getVolumeNo))
-                .stream()
-                .map(volume -> VolumeOutlineResponse.builder()
-                        .id(volume.getId())
-                        .volumeNo(volume.getVolumeNo())
-                        .title(volume.getTitle())
-                        .summary(volume.getSummary())
-                        .goal(volume.getGoal())
-                        .estimatedWordCount(volume.getEstimatedWordCount())
-                        .build())
-                .toList();
-        return OutlineResponse.builder()
-                .id(outline.getId())
-                .outlineLevel("global")
-                .title(outline.getTitle())
-                .content(outline.getContent())
-                .confirmed(outline.getConfirmedAt() != null)
-                .volumes(volumes)
-                .build();
+        OutlineResponse response = outlineConverter.toResponse(outline);
+        response.setVolumes(outlineConverter.toVolumeResponseList(volumeMapper.selectList(new LambdaQueryWrapper<Volume>()
+                .eq(Volume::getProjectId, outline.getProjectId())
+                .orderByAsc(Volume::getVolumeNo))));
+        return response;
     }
 
     /**

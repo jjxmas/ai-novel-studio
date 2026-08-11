@@ -4,48 +4,38 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.jjxmas.ainovelstudio.common.exception.BusinessException;
 import com.jjxmas.ainovelstudio.common.exception.ErrorCode;
 import com.jjxmas.ainovelstudio.common.util.JsonUtils;
+import com.jjxmas.ainovelstudio.converter.VersionConverter;
+import com.jjxmas.ainovelstudio.mapper.ContentVersionMapper;
 import com.jjxmas.ainovelstudio.pojo.dto.VersionResponse;
 import com.jjxmas.ainovelstudio.pojo.entity.ContentVersion;
-import com.jjxmas.ainovelstudio.mapper.ContentVersionMapper;
 import com.jjxmas.ainovelstudio.service.VersionService;
 import java.util.List;
 import java.util.Map;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * 版本服务。第二版只做快照写入和查询，不做回滚和对比。
- */
-/**
- * 版本服务实现，负责内容版本快照写入和查询。
- */
 @Service
 public class VersionServiceImpl implements VersionService {
 
     private final ContentVersionMapper contentVersionMapper;
+    private final VersionConverter versionConverter;
 
-    /**
-     * 注入内容版本 Mapper。
-     */
-    public VersionServiceImpl(ContentVersionMapper contentVersionMapper) {
+    public VersionServiceImpl(
+            ContentVersionMapper contentVersionMapper,
+            VersionConverter versionConverter) {
         this.contentVersionMapper = contentVersionMapper;
+        this.versionConverter = versionConverter;
     }
 
-    /**
-     * 查询指定版本快照，不存在时抛出业务异常。
-     */
     @Override
     public VersionResponse getVersion(Long versionId) {
         ContentVersion version = contentVersionMapper.selectById(versionId);
         if (version == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "版本不存在");
         }
-        return toResponse(version);
+        return versionConverter.toResponse(version);
     }
 
-    /**
-     * 按项目、实体类型或实体 ID 组合筛选版本快照。
-     */
     @Override
     public List<VersionResponse> listVersions(Long projectId, String entityType, Long entityId) {
         LambdaQueryWrapper<ContentVersion> query = new LambdaQueryWrapper<ContentVersion>()
@@ -53,15 +43,9 @@ public class VersionServiceImpl implements VersionService {
                 .eq(entityType != null && !entityType.isBlank(), ContentVersion::getEntityType, entityType)
                 .eq(entityId != null, ContentVersion::getEntityId, entityId)
                 .orderByDesc(ContentVersion::getCreatedAt);
-        return contentVersionMapper.selectList(query)
-                .stream()
-                .map(this::toResponse)
-                .toList();
+        return versionConverter.toResponseList(contentVersionMapper.selectList(query));
     }
 
-    /**
-     * 为实体追加一条递增版本号的内容快照。
-     */
     @Override
     @Transactional
     public void recordVersion(
@@ -95,24 +79,6 @@ public class VersionServiceImpl implements VersionService {
         contentVersionMapper.insert(version);
     }
 
-    /**
-     * 将内容版本实体转换为版本响应对象。
-     */
-    private VersionResponse toResponse(ContentVersion version) {
-        return VersionResponse.builder()
-                .id(version.getId())
-                .entityType(version.getEntityType())
-                .entityId(version.getEntityId())
-                .versionNo(version.getVersionNo())
-                .changeSource(version.getChangeSource())
-                .changeNote(version.getChangeNote())
-                .snapshot(version.getSnapshot())
-                .build();
-    }
-
-    /**
-     * 根据变更来源推断版本操作类型。
-     */
     private String toOperationType(String changeSource) {
         if (changeSource == null) {
             return "generate";

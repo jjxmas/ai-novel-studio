@@ -25,12 +25,12 @@ public interface OutlineService {
     /**
      * 按项目 ID 更新全局大纲。
      */
-    OutlineResponse updateGlobalOutline(Long projectId, OutlineUpdateRequest request);
+    void updateGlobalOutline(Long projectId, OutlineUpdateRequest request);
 
     /**
      * 按大纲 ID 更新全局大纲。
      */
-    OutlineResponse updateGlobalOutlineById(Long outlineId, OutlineUpdateRequest request);
+    void updateGlobalOutlineById(Long outlineId, OutlineUpdateRequest request);
 
     /**
      * 根据重写指令重新生成全局大纲。
@@ -40,12 +40,12 @@ public interface OutlineService {
     /**
      * 按项目 ID 确认全局大纲。
      */
-    OutlineResponse confirmGlobalOutline(Long projectId);
+    void confirmGlobalOutline(Long projectId);
 
     /**
      * 按大纲 ID 确认全局大纲。
      */
-    OutlineResponse confirmGlobalOutlineById(Long outlineId);
+    void confirmGlobalOutlineById(Long outlineId);
 
     /**
      * 基于已确认全局大纲生成卷和章节大纲。

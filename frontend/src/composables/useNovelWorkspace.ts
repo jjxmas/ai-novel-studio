@@ -354,49 +354,64 @@ export function useNovelWorkspace() {
     if (!state.activeProjectId) {
       return;
     }
-    const character = await withFallback(
+    let fallbackUsed = false;
+    const characterId = await withFallback(
       novelApi.createCharacter(state.activeProjectId, payload),
-      () => ({
-        id: next(),
-        projectId: state.activeProjectId!,
-        ...payload,
-        gender: payload.gender ?? '',
-        ageText: payload.ageText ?? '',
-        motivation: payload.motivation ?? '',
-        relationshipSummary: payload.relationshipSummary ?? '',
-        notes: payload.notes ?? '',
-      }),
+      () => {
+        fallbackUsed = true;
+        const character = {
+          id: next(),
+          projectId: state.activeProjectId!,
+          ...payload,
+          gender: payload.gender ?? '',
+          ageText: payload.ageText ?? '',
+          motivation: payload.motivation ?? '',
+          relationshipSummary: payload.relationshipSummary ?? '',
+          notes: payload.notes ?? '',
+        };
+        state.characters.push(character);
+        return character.id;
+      },
       '角色已创建',
     );
-    state.characters.push(character);
-    syncSettingLibraryMetrics();
-    return character;
+    if (!fallbackUsed) {
+      await loadCharacters();
+    } else {
+      syncSettingLibraryMetrics();
+    }
+    return state.characters.find((item) => item.id === characterId);
   }
 
   async function updateCharacter(characterId: number, payload: StoryCharacterRequest) {
     if (!state.activeProjectId) {
       return;
     }
-    const character = await withFallback(
+    let fallbackUsed = false;
+    await withFallback(
       novelApi.updateCharacter(state.activeProjectId, characterId, payload),
-      () => ({
-        id: characterId,
-        projectId: state.activeProjectId!,
-        ...payload,
-        gender: payload.gender ?? '',
-        ageText: payload.ageText ?? '',
-        motivation: payload.motivation ?? '',
-        relationshipSummary: payload.relationshipSummary ?? '',
-        notes: payload.notes ?? '',
-      }),
+      () => {
+        fallbackUsed = true;
+        const index = state.characters.findIndex((item) => item.id === characterId);
+        if (index >= 0) {
+          state.characters[index] = {
+            id: characterId,
+            projectId: state.activeProjectId!,
+            ...payload,
+            gender: payload.gender ?? '',
+            ageText: payload.ageText ?? '',
+            motivation: payload.motivation ?? '',
+            relationshipSummary: payload.relationshipSummary ?? '',
+            notes: payload.notes ?? '',
+          };
+        }
+      },
       '角色已保存',
     );
-    const index = state.characters.findIndex((item) => item.id === characterId);
-    if (index >= 0) {
-      state.characters[index] = character;
+    if (!fallbackUsed) {
+      await loadCharacters();
+    } else {
+      syncSettingLibraryMetrics();
     }
-    syncSettingLibraryMetrics();
-    return character;
   }
 
   async function deleteCharacter(characterId: number) {
@@ -412,41 +427,56 @@ export function useNovelWorkspace() {
     if (!state.activeProjectId) {
       return;
     }
-    const organization = await withFallback(
+    let fallbackUsed = false;
+    const organizationId = await withFallback(
       novelApi.createOrganization(state.activeProjectId, payload),
-      () => ({
-        id: next(),
-        projectId: state.activeProjectId!,
-        ...payload,
-        baseLocationId: payload.baseLocationId ?? null,
-      }),
+      () => {
+        fallbackUsed = true;
+        const organization = {
+          id: next(),
+          projectId: state.activeProjectId!,
+          ...payload,
+          baseLocationId: payload.baseLocationId ?? null,
+        };
+        state.organizations.push(organization);
+        return organization.id;
+      },
       '组织已创建',
     );
-    state.organizations.push(organization);
-    syncSettingLibraryMetrics();
-    return organization;
+    if (!fallbackUsed) {
+      await loadOrganizations();
+    } else {
+      syncSettingLibraryMetrics();
+    }
+    return state.organizations.find((item) => item.id === organizationId);
   }
 
   async function updateOrganization(organizationId: number, payload: OrganizationRequest) {
     if (!state.activeProjectId) {
       return;
     }
-    const organization = await withFallback(
+    let fallbackUsed = false;
+    await withFallback(
       novelApi.updateOrganization(state.activeProjectId, organizationId, payload),
-      () => ({
-        id: organizationId,
-        projectId: state.activeProjectId!,
-        ...payload,
-        baseLocationId: payload.baseLocationId ?? null,
-      }),
+      () => {
+        fallbackUsed = true;
+        const index = state.organizations.findIndex((item) => item.id === organizationId);
+        if (index >= 0) {
+          state.organizations[index] = {
+            id: organizationId,
+            projectId: state.activeProjectId!,
+            ...payload,
+            baseLocationId: payload.baseLocationId ?? null,
+          };
+        }
+      },
       '组织已保存',
     );
-    const index = state.organizations.findIndex((item) => item.id === organizationId);
-    if (index >= 0) {
-      state.organizations[index] = organization;
+    if (!fallbackUsed) {
+      await loadOrganizations();
+    } else {
+      syncSettingLibraryMetrics();
     }
-    syncSettingLibraryMetrics();
-    return organization;
   }
 
   async function deleteOrganization(organizationId: number) {
@@ -462,43 +492,58 @@ export function useNovelWorkspace() {
     if (!state.activeProjectId) {
       return;
     }
-    const location = await withFallback(
+    let fallbackUsed = false;
+    const locationId = await withFallback(
       novelApi.createLocation(state.activeProjectId, payload),
-      () => ({
-        id: next(),
-        projectId: state.activeProjectId!,
-        ...payload,
-        parentLocationId: payload.parentLocationId ?? null,
-        controllingOrgId: payload.controllingOrgId ?? null,
-      }),
+      () => {
+        fallbackUsed = true;
+        const location = {
+          id: next(),
+          projectId: state.activeProjectId!,
+          ...payload,
+          parentLocationId: payload.parentLocationId ?? null,
+          controllingOrgId: payload.controllingOrgId ?? null,
+        };
+        state.locations.push(location);
+        return location.id;
+      },
       '地点已创建',
     );
-    state.locations.push(location);
-    syncSettingLibraryMetrics();
-    return location;
+    if (!fallbackUsed) {
+      await loadLocations();
+    } else {
+      syncSettingLibraryMetrics();
+    }
+    return state.locations.find((item) => item.id === locationId);
   }
 
   async function updateLocation(locationId: number, payload: StoryLocationRequest) {
     if (!state.activeProjectId) {
       return;
     }
-    const location = await withFallback(
+    let fallbackUsed = false;
+    await withFallback(
       novelApi.updateLocation(state.activeProjectId, locationId, payload),
-      () => ({
-        id: locationId,
-        projectId: state.activeProjectId!,
-        ...payload,
-        parentLocationId: payload.parentLocationId ?? null,
-        controllingOrgId: payload.controllingOrgId ?? null,
-      }),
+      () => {
+        fallbackUsed = true;
+        const index = state.locations.findIndex((item) => item.id === locationId);
+        if (index >= 0) {
+          state.locations[index] = {
+            id: locationId,
+            projectId: state.activeProjectId!,
+            ...payload,
+            parentLocationId: payload.parentLocationId ?? null,
+            controllingOrgId: payload.controllingOrgId ?? null,
+          };
+        }
+      },
       '地点已保存',
     );
-    const index = state.locations.findIndex((item) => item.id === locationId);
-    if (index >= 0) {
-      state.locations[index] = location;
+    if (!fallbackUsed) {
+      await loadLocations();
+    } else {
+      syncSettingLibraryMetrics();
     }
-    syncSettingLibraryMetrics();
-    return location;
   }
 
   async function deleteLocation(locationId: number) {
@@ -514,61 +559,85 @@ export function useNovelWorkspace() {
     if (!state.activeProjectId) {
       return;
     }
-    const worldRule = await withFallback(
+    let fallbackUsed = false;
+    const worldRuleId = await withFallback(
       novelApi.createWorldRule(state.activeProjectId, payload),
-      () => ({
-        id: next(),
-        projectId: state.activeProjectId!,
-        ...payload,
-      }),
+      () => {
+        fallbackUsed = true;
+        const worldRule = {
+          id: next(),
+          projectId: state.activeProjectId!,
+          ...payload,
+        };
+        state.worldRules.push(worldRule);
+        return worldRule.id;
+      },
       '规则已创建',
     );
-    state.worldRules.push(worldRule);
-    syncSettingLibraryMetrics();
-    return worldRule;
+    if (!fallbackUsed) {
+      await loadWorldRules();
+    } else {
+      syncSettingLibraryMetrics();
+    }
+    return state.worldRules.find((item) => item.id === worldRuleId);
   }
 
   async function createItem(payload: StoryItemRequest) {
     if (!state.activeProjectId) {
       return;
     }
-    const item = await withFallback(
+    let fallbackUsed = false;
+    const itemId = await withFallback(
       novelApi.createItem(state.activeProjectId, payload),
-      () => ({
-        id: next(),
-        projectId: state.activeProjectId!,
-        ...payload,
-        ownerCharacterId: payload.ownerCharacterId ?? null,
-        ownerOrgId: payload.ownerOrgId ?? null,
-      }),
+      () => {
+        fallbackUsed = true;
+        const item = {
+          id: next(),
+          projectId: state.activeProjectId!,
+          ...payload,
+          ownerCharacterId: payload.ownerCharacterId ?? null,
+          ownerOrgId: payload.ownerOrgId ?? null,
+        };
+        state.items.push(item);
+        return item.id;
+      },
       '物品已创建',
     );
-    state.items.push(item);
-    syncSettingLibraryMetrics();
-    return item;
+    if (!fallbackUsed) {
+      await loadItems();
+    } else {
+      syncSettingLibraryMetrics();
+    }
+    return state.items.find((item) => item.id === itemId);
   }
 
   async function updateItem(itemId: number, payload: StoryItemRequest) {
     if (!state.activeProjectId) {
       return;
     }
-    const item = await withFallback(
+    let fallbackUsed = false;
+    await withFallback(
       novelApi.updateItem(state.activeProjectId, itemId, payload),
-      () => ({
-        id: itemId,
-        projectId: state.activeProjectId!,
-        ...payload,
-        ownerCharacterId: payload.ownerCharacterId ?? null,
-        ownerOrgId: payload.ownerOrgId ?? null,
-      }),
+      () => {
+        fallbackUsed = true;
+        const index = state.items.findIndex((entry) => entry.id === itemId);
+        if (index >= 0) {
+          state.items[index] = {
+            id: itemId,
+            projectId: state.activeProjectId!,
+            ...payload,
+            ownerCharacterId: payload.ownerCharacterId ?? null,
+            ownerOrgId: payload.ownerOrgId ?? null,
+          };
+        }
+      },
       '物品已保存',
     );
-    const index = state.items.findIndex((entry) => entry.id === itemId);
-    if (index >= 0) {
-      state.items[index] = item;
+    if (!fallbackUsed) {
+      await loadItems();
+    } else {
+      syncSettingLibraryMetrics();
     }
-    syncSettingLibraryMetrics();
-    return item;
   }
 
   async function deleteItem(itemId: number) {
@@ -584,21 +653,27 @@ export function useNovelWorkspace() {
     if (!state.activeProjectId) {
       return;
     }
-    const worldRule = await withFallback(
+    let fallbackUsed = false;
+    await withFallback(
       novelApi.updateWorldRule(state.activeProjectId, ruleId, payload),
-      () => ({
-        id: ruleId,
-        projectId: state.activeProjectId!,
-        ...payload,
-      }),
+      () => {
+        fallbackUsed = true;
+        const index = state.worldRules.findIndex((item) => item.id === ruleId);
+        if (index >= 0) {
+          state.worldRules[index] = {
+            id: ruleId,
+            projectId: state.activeProjectId!,
+            ...payload,
+          };
+        }
+      },
       '规则已保存',
     );
-    const index = state.worldRules.findIndex((item) => item.id === ruleId);
-    if (index >= 0) {
-      state.worldRules[index] = worldRule;
+    if (!fallbackUsed) {
+      await loadWorldRules();
+    } else {
+      syncSettingLibraryMetrics();
     }
-    syncSettingLibraryMetrics();
-    return worldRule;
   }
 
   async function deleteWorldRule(ruleId: number) {
@@ -614,135 +689,180 @@ export function useNovelWorkspace() {
     if (!state.activeProjectId || payload.sourceId == null || payload.targetId == null) {
       return;
     }
-    const relation = await withFallback(
+    let fallbackUsed = false;
+    const relationId = await withFallback(
       novelApi.createRelation(state.activeProjectId, payload),
-      () => ({
-        id: next(),
-        projectId: state.activeProjectId!,
-        ...payload,
-      }),
+      () => {
+        fallbackUsed = true;
+        const relation = {
+          id: next(),
+          projectId: state.activeProjectId!,
+          ...payload,
+        };
+        state.relations.push(relation);
+        return relation.id;
+      },
       '关系已创建',
     );
-    state.relations.push(relation);
-    syncSettingLibraryMetrics();
-    return relation;
+    if (!fallbackUsed) {
+      await loadRelations();
+    } else {
+      syncSettingLibraryMetrics();
+    }
+    return state.relations.find((item) => item.id === relationId);
   }
 
   async function createEvent(payload: StoryEventRequest) {
     if (!state.activeProjectId) {
       return;
     }
-    const event = await withFallback(
+    let fallbackUsed = false;
+    const eventId = await withFallback(
       novelApi.createEvent(state.activeProjectId, payload),
-      () => ({
-        id: next(),
-        projectId: state.activeProjectId!,
-        ...payload,
-        locationId: payload.locationId ?? null,
-        chapterId: payload.chapterId ?? null,
-      }),
+      () => {
+        fallbackUsed = true;
+        const event = {
+          id: next(),
+          projectId: state.activeProjectId!,
+          ...payload,
+          locationId: payload.locationId ?? null,
+          chapterId: payload.chapterId ?? null,
+        };
+        state.events.push(event);
+        return event.id;
+      },
       '事件已创建',
     );
-    state.events.push(event);
-    syncSettingLibraryMetrics();
-    return event;
+    if (!fallbackUsed) {
+      await loadEvents();
+    } else {
+      syncSettingLibraryMetrics();
+    }
+    return state.events.find((item) => item.id === eventId);
   }
 
   async function createStateRecord(payload: EntityStateRecordRequest) {
     if (!state.activeProjectId || payload.entityId == null || payload.newValue == null) {
       return;
     }
-    const stateRecord = await withFallback(
+    let fallbackUsed = false;
+    const stateRecordId = await withFallback(
       novelApi.createStateRecord(state.activeProjectId, payload),
-      () => ({
-        id: next(),
-        projectId: state.activeProjectId!,
-        entityType: payload.entityType,
-        entityId: payload.entityId,
-        stateType: payload.stateType,
-        oldValue: payload.oldValue ?? null,
-        newValue: payload.newValue,
-        eventId: payload.eventId ?? null,
-        chapterId: payload.chapterId ?? null,
-        effectiveAt: payload.effectiveAt ?? null,
-      }),
+      () => {
+        fallbackUsed = true;
+        const stateRecord = {
+          id: next(),
+          projectId: state.activeProjectId!,
+          entityType: payload.entityType,
+          entityId: payload.entityId,
+          stateType: payload.stateType,
+          oldValue: payload.oldValue ?? null,
+          newValue: payload.newValue,
+          eventId: payload.eventId ?? null,
+          chapterId: payload.chapterId ?? null,
+          effectiveAt: payload.effectiveAt ?? null,
+        };
+        state.stateRecords.push(stateRecord);
+        return stateRecord.id;
+      },
       '状态记录已创建',
     );
-    state.stateRecords.push(stateRecord);
-    syncSettingLibraryMetrics();
-    return stateRecord;
+    if (!fallbackUsed) {
+      await loadStateRecords();
+    } else {
+      syncSettingLibraryMetrics();
+    }
+    return state.stateRecords.find((item) => item.id === stateRecordId);
   }
 
   async function updateRelation(relationId: number, payload: EntityRelationRequest) {
     if (!state.activeProjectId || payload.sourceId == null || payload.targetId == null) {
       return;
     }
-    const relation = await withFallback(
+    let fallbackUsed = false;
+    await withFallback(
       novelApi.updateRelation(state.activeProjectId, relationId, payload),
-      () => ({
-        id: relationId,
-        projectId: state.activeProjectId!,
-        ...payload,
-      }),
+      () => {
+        fallbackUsed = true;
+        const index = state.relations.findIndex((entry) => entry.id === relationId);
+        if (index >= 0) {
+          state.relations[index] = {
+            id: relationId,
+            projectId: state.activeProjectId!,
+            ...payload,
+          };
+        }
+      },
       '关系已保存',
     );
-    const index = state.relations.findIndex((entry) => entry.id === relationId);
-    if (index >= 0) {
-      state.relations[index] = relation;
+    if (!fallbackUsed) {
+      await loadRelations();
+    } else {
+      syncSettingLibraryMetrics();
     }
-    syncSettingLibraryMetrics();
-    return relation;
   }
 
   async function updateEvent(eventId: number, payload: StoryEventRequest) {
     if (!state.activeProjectId) {
       return;
     }
-    const event = await withFallback(
+    let fallbackUsed = false;
+    await withFallback(
       novelApi.updateEvent(state.activeProjectId, eventId, payload),
-      () => ({
-        id: eventId,
-        projectId: state.activeProjectId!,
-        ...payload,
-        locationId: payload.locationId ?? null,
-        chapterId: payload.chapterId ?? null,
-      }),
+      () => {
+        fallbackUsed = true;
+        const index = state.events.findIndex((entry) => entry.id === eventId);
+        if (index >= 0) {
+          state.events[index] = {
+            id: eventId,
+            projectId: state.activeProjectId!,
+            ...payload,
+            locationId: payload.locationId ?? null,
+            chapterId: payload.chapterId ?? null,
+          };
+        }
+      },
       '事件已保存',
     );
-    const index = state.events.findIndex((entry) => entry.id === eventId);
-    if (index >= 0) {
-      state.events[index] = event;
+    if (!fallbackUsed) {
+      await loadEvents();
+    } else {
+      syncSettingLibraryMetrics();
     }
-    syncSettingLibraryMetrics();
-    return event;
   }
 
   async function updateStateRecord(recordId: number, payload: EntityStateRecordRequest) {
     if (!state.activeProjectId || payload.entityId == null || payload.newValue == null) {
       return;
     }
-    const stateRecord = await withFallback(
+    let fallbackUsed = false;
+    await withFallback(
       novelApi.updateStateRecord(state.activeProjectId, recordId, payload),
-      () => ({
-        id: recordId,
-        projectId: state.activeProjectId!,
-        entityType: payload.entityType,
-        entityId: payload.entityId,
-        stateType: payload.stateType,
-        oldValue: payload.oldValue ?? null,
-        newValue: payload.newValue,
-        eventId: payload.eventId ?? null,
-        chapterId: payload.chapterId ?? null,
-        effectiveAt: payload.effectiveAt ?? null,
-      }),
+      () => {
+        fallbackUsed = true;
+        const index = state.stateRecords.findIndex((entry) => entry.id === recordId);
+        if (index >= 0) {
+          state.stateRecords[index] = {
+            id: recordId,
+            projectId: state.activeProjectId!,
+            entityType: payload.entityType,
+            entityId: payload.entityId,
+            stateType: payload.stateType,
+            oldValue: payload.oldValue ?? null,
+            newValue: payload.newValue,
+            eventId: payload.eventId ?? null,
+            chapterId: payload.chapterId ?? null,
+            effectiveAt: payload.effectiveAt ?? null,
+          };
+        }
+      },
       '状态记录已保存',
     );
-    const index = state.stateRecords.findIndex((entry) => entry.id === recordId);
-    if (index >= 0) {
-      state.stateRecords[index] = stateRecord;
+    if (!fallbackUsed) {
+      await loadStateRecords();
+    } else {
+      syncSettingLibraryMetrics();
     }
-    syncSettingLibraryMetrics();
-    return stateRecord;
   }
 
   async function deleteRelation(relationId: number) {
@@ -818,17 +938,21 @@ export function useNovelWorkspace() {
   }
 
   async function createProject(payload: ProjectCreateRequest) {
-    const project = await withFallback(
+    const projectId = await withFallback(
       novelApi.createProject(payload),
-      () => ({
-        id: next(),
-        ...payload,
-        stage: 'idea' as const,
-        updatedAt: nowText(),
-      }),
+      () => next(),
       '作品已创建',
     );
-    state.projects.unshift(project);
+    await loadProjects().catch(() => undefined);
+    const project = state.projects.find((item) => item.id === projectId) ?? {
+      id: projectId,
+      ...payload,
+      stage: 'idea' as const,
+      updatedAt: nowText(),
+    };
+    if (!state.projects.some((item) => item.id === project.id)) {
+      state.projects.unshift(project);
+    }
     state.activeProjectId = project.id;
     resetProjectData();
     addVersion('project', project.id, 'create', `创建作品《${project.title}》`);
@@ -836,47 +960,30 @@ export function useNovelWorkspace() {
   }
 
   async function updateProject(projectId: number, payload: ProjectUpdateRequest) {
-    const updated = await withFallback(
+    await withFallback(
       novelApi.updateProject(projectId, payload),
-      () => ({
-        ...payload,
-        id: projectId,
-        stage: activeProject.value?.stage ?? 'idea',
-        updatedAt: nowText(),
-      }),
+      () => undefined,
       '作品信息已保存',
     );
     const index = state.projects.findIndex((item) => item.id === projectId);
     if (index >= 0) {
-      state.projects[index] = updated;
+      state.projects[index] = {
+        ...state.projects[index],
+        ...payload,
+        updatedAt: nowText(),
+      };
     }
     addVersion('project', projectId, 'edit', '用户修改作品基础信息');
-    return updated;
   }
 
   async function createModelConfig(payload: ModelConfigRequest) {
-    const model = await withFallback(
+    const createdId = await withFallback(
       novelApi.createModelConfig(payload),
-      () => ({
-        id: next(),
-        provider: payload.provider,
-        displayName: payload.displayName,
-        baseUrl: payload.baseUrl,
-        modelName: payload.modelName,
-        usageType: payload.usageType,
-        hasApiKey: payload.apiKey.trim().length > 0,
-        defaultModel: payload.defaultModel,
-        enabled: payload.enabled,
-      }),
+      () => next(),
       '模型配置已保存',
     );
-    if (model.defaultModel) {
-      state.modelConfigs.forEach((item) => {
-        item.defaultModel = false;
-      });
-    }
-    state.modelConfigs.unshift(model);
-    return model;
+    await loadModelConfigs().catch(() => undefined);
+    return state.modelConfigs.find((item) => item.id === createdId);
   }
 
   async function loadModelConfigs() {
@@ -886,23 +993,13 @@ export function useNovelWorkspace() {
   }
 
   async function updateModelConfig(id: number, payload: ModelConfigRequest) {
-    const model = await withFallback(novelApi.updateModelConfig(id, payload), () => ({
-      id,
-      provider: payload.provider,
-      displayName: payload.displayName,
-      baseUrl: payload.baseUrl,
-      modelName: payload.modelName,
-      usageType: payload.usageType,
-      hasApiKey: payload.apiKey.trim().length > 0,
-      defaultModel: payload.defaultModel,
-      enabled: payload.enabled,
-    }), '模型配置已修改');
-    const index = state.modelConfigs.findIndex((item) => item.id === id);
-    if (index >= 0) {
-      state.modelConfigs[index] = model;
-    }
+    await withFallback(
+      novelApi.updateModelConfig(id, payload),
+      () => undefined,
+      '模型配置已修改',
+    );
     await loadModelConfigs().catch(() => undefined);
-    return model;
+    return state.modelConfigs.find((item) => item.id === id);
   }
 
   async function setDefaultModel(id: number) {
@@ -911,26 +1008,22 @@ export function useNovelWorkspace() {
       state.lastMessage = '未找到模型配置。';
       return;
     }
-    await withFallback(novelApi.setDefaultModel(id), () => localModel, '默认模型已更新');
-    state.modelConfigs.forEach((item) => {
-      item.defaultModel = item.id === id;
-    });
+    await withFallback(
+      novelApi.setDefaultModel(id),
+      () => undefined,
+      '默认模型已更新',
+    );
     await loadModelConfigs().catch(() => undefined);
   }
 
   async function disableModelConfig(id: number) {
-    const localModel = state.modelConfigs.find((item) => item.id === id);
-    const model = await withFallback(novelApi.disableModelConfig(id), () => ({
-      ...(localModel!),
-      enabled: false,
-      defaultModel: false,
-    }), '模型配置已禁用');
-    const index = state.modelConfigs.findIndex((item) => item.id === id);
-    if (index >= 0) {
-      state.modelConfigs[index] = model;
-    }
+    await withFallback(
+      novelApi.disableModelConfig(id),
+      () => undefined,
+      '模型配置已禁用',
+    );
     await loadModelConfigs().catch(() => undefined);
-    return model;
+    return state.modelConfigs.find((item) => item.id === id);
   }
 
   async function generateIdeas(suggestion = '', ideaCount = 3) {
@@ -976,10 +1069,8 @@ export function useNovelWorkspace() {
   }
 
   async function selectIdea(id: number) {
-    await withFallback(novelApi.selectIdea(id), () => state.ideas.find((item) => item.id === id)!, '创意已选定');
-    state.ideas.forEach((idea) => {
-      idea.selected = idea.id === id;
-    });
+    await withFallback(novelApi.selectIdea(id), () => undefined, '创意已选定');
+    await loadIdeas().catch(() => undefined);
     addVersion('idea', id, 'confirm', '选定创意方案');
     setProjectStage('setting');
   }
@@ -1014,7 +1105,8 @@ export function useNovelWorkspace() {
     localIdea.mainConflict = idea.mainConflict;
     localIdea.estimatedWords = idea.estimatedWords;
     localIdea.content = idea.content;
-    await withFallback(novelApi.updateIdea(localIdea), () => localIdea, '创意修改已保存');
+    await withFallback(novelApi.updateIdea(localIdea), () => undefined, '创意修改已保存');
+    await loadIdeas().catch(() => undefined);
     addVersion('idea', idea.id, 'edit', '用户直接修改创意内容');
   }
 
@@ -1282,12 +1374,12 @@ export function useNovelWorkspace() {
       return;
     }
     state.outline.content = content;
-    const updated = await withFallback(
-      novelApi.updateGlobalOutline(state.outline.id, content),
-      () => state.outline!,
+    await withFallback(
+      novelApi.saveGlobalOutline(state.outline.id, content),
+      () => undefined,
       '全局大纲修改已保存',
     );
-    Object.assign(state.outline, updated);
+    await loadOutline().catch(() => undefined);
     addVersion('global_outline', state.outline.id, 'edit', '用户直接修改全局大纲');
   }
 
@@ -1297,10 +1389,11 @@ export function useNovelWorkspace() {
     }
     await withFallback(
       novelApi.confirmGlobalOutline(state.outline.id),
-      () => ({ ...state.outline!, confirmed: true }),
+      () => undefined,
       '全局大纲已确认',
     );
     state.outline.confirmed = true;
+    await loadOutline().catch(() => undefined);
     addVersion('global_outline', state.outline.id, 'confirm', '确认全局大纲');
     setProjectStage('chapter');
   }
@@ -1378,12 +1471,16 @@ export function useNovelWorkspace() {
     }
     chapter.content = content;
     chapter.status = 'edited';
-    const updated = await withFallback(
+    await withFallback(
       novelApi.updateChapter(chapterId, content),
-      () => chapter,
+      () => undefined,
       '章节正文修改已保存',
     );
-    Object.assign(chapter, updated, { status: 'edited' as const });
+    await loadChapters().catch(() => undefined);
+    const refreshedChapter = state.chapters.find((item) => item.id === chapterId);
+    if (refreshedChapter) {
+      Object.assign(chapter, refreshedChapter);
+    }
     state.projectMemory = await novelApi.getProjectMemory(chapter.projectId).catch(() => state.projectMemory);
     addVersion('chapter', chapterId, 'edit', '用户直接修改章节正文');
   }

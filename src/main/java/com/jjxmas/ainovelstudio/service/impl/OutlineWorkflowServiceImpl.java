@@ -6,6 +6,8 @@ import com.jjxmas.ainovelstudio.ai.AiOrchestratorService;
 import com.jjxmas.ainovelstudio.common.exception.BusinessException;
 import com.jjxmas.ainovelstudio.common.exception.ErrorCode;
 import com.jjxmas.ainovelstudio.common.util.JsonUtils;
+import com.jjxmas.ainovelstudio.converter.OutlineConverter;
+import com.jjxmas.ainovelstudio.converter.OutlineWorkflowConverter;
 import com.jjxmas.ainovelstudio.mapper.ChapterMapper;
 import com.jjxmas.ainovelstudio.mapper.OutlineMapper;
 import com.jjxmas.ainovelstudio.mapper.OutlineWorkflowRunMapper;
@@ -50,6 +52,8 @@ public class OutlineWorkflowServiceImpl implements OutlineWorkflowService {
     private final GenerationJobService generationJobService;
     private final VersionService versionService;
     private final AiOrchestratorService aiOrchestratorService;
+    private final OutlineConverter outlineConverter;
+    private final OutlineWorkflowConverter outlineWorkflowConverter;
 
     public OutlineWorkflowServiceImpl(
             OutlineWorkflowRunMapper outlineWorkflowRunMapper,
@@ -61,7 +65,9 @@ public class OutlineWorkflowServiceImpl implements OutlineWorkflowService {
             ChapterMapper chapterMapper,
             GenerationJobService generationJobService,
             VersionService versionService,
-            AiOrchestratorService aiOrchestratorService) {
+            AiOrchestratorService aiOrchestratorService,
+            OutlineConverter outlineConverter,
+            OutlineWorkflowConverter outlineWorkflowConverter) {
         this.outlineWorkflowRunMapper = outlineWorkflowRunMapper;
         this.projectMapper = projectMapper;
         this.settingLibraryMapper = settingLibraryMapper;
@@ -72,6 +78,8 @@ public class OutlineWorkflowServiceImpl implements OutlineWorkflowService {
         this.generationJobService = generationJobService;
         this.versionService = versionService;
         this.aiOrchestratorService = aiOrchestratorService;
+        this.outlineConverter = outlineConverter;
+        this.outlineWorkflowConverter = outlineWorkflowConverter;
     }
 
     @Override
@@ -213,7 +221,7 @@ public class OutlineWorkflowServiceImpl implements OutlineWorkflowService {
     private Map<String, Object> outlineContext(Project project, SettingLibrary setting) {
         return Map.of(
                 "projectTitle", text(project.getTitle()),
-                "genres", text(project.getGenres()),
+                "genres", String.join(" + ", project.getGenres() == null ? List.of() : project.getGenres()),
                 "targetWordCountMin", project.getTargetWordCountMin() == null ? 0 : project.getTargetWordCountMin(),
                 "targetWordCountMax", project.getTargetWordCountMax() == null ? 0 : project.getTargetWordCountMax(),
                 "targetChapterWordCount", project.getTargetChapterWordCount() == null ? 0 : project.getTargetChapterWordCount(),
@@ -299,39 +307,18 @@ public class OutlineWorkflowServiceImpl implements OutlineWorkflowService {
     }
 
     private OutlineWorkflowResponse toResponse(OutlineWorkflowRun run) {
-        return OutlineWorkflowResponse.builder()
-                .id(run.getId())
-                .projectId(run.getProjectId())
-                .settingLibraryId(run.getSettingLibraryId())
-                .status(run.getStatus())
-                .draft(JsonUtils.toMap(run.getDraftJson()))
-                .checks(JsonUtils.toMap(run.getCheckJson()))
-                .committedAt(run.getCommittedAt())
-                .build();
+        OutlineWorkflowResponse response = outlineWorkflowConverter.toResponse(run);
+        response.setDraft(JsonUtils.toMap(run.getDraftJson()));
+        response.setChecks(JsonUtils.toMap(run.getCheckJson()));
+        return response;
     }
 
     private OutlineResponse toOutlineResponse(Outline outline) {
-        List<VolumeOutlineResponse> volumes = volumeMapper.selectList(new LambdaQueryWrapper<Volume>()
-                        .eq(Volume::getProjectId, outline.getProjectId())
-                        .orderByAsc(Volume::getVolumeNo))
-                .stream()
-                .map(volume -> VolumeOutlineResponse.builder()
-                        .id(volume.getId())
-                        .volumeNo(volume.getVolumeNo())
-                        .title(volume.getTitle())
-                        .summary(volume.getSummary())
-                        .goal(volume.getGoal())
-                        .estimatedWordCount(volume.getEstimatedWordCount())
-                        .build())
-                .toList();
-        return OutlineResponse.builder()
-                .id(outline.getId())
-                .outlineLevel("global")
-                .title(outline.getTitle())
-                .content(outline.getContent())
-                .confirmed(outline.getConfirmedAt() != null)
-                .volumes(volumes)
-                .build();
+        OutlineResponse response = outlineConverter.toResponse(outline);
+        response.setVolumes(outlineConverter.toVolumeResponseList(volumeMapper.selectList(new LambdaQueryWrapper<Volume>()
+                .eq(Volume::getProjectId, outline.getProjectId())
+                .orderByAsc(Volume::getVolumeNo))));
+        return response;
     }
 
     private Map<String, Object> requireJsonObject(String content, String message) {

@@ -9,6 +9,7 @@ import com.jjxmas.ainovelstudio.ai.AiOrchestratorService;
 import com.jjxmas.ainovelstudio.common.exception.BusinessException;
 import com.jjxmas.ainovelstudio.common.exception.ErrorCode;
 import com.jjxmas.ainovelstudio.common.util.JsonUtils;
+import com.jjxmas.ainovelstudio.converter.IdeaConverter;
 import com.jjxmas.ainovelstudio.mapper.ModelConfigMapper;
 import com.jjxmas.ainovelstudio.pojo.entity.ModelConfig;
 import com.jjxmas.ainovelstudio.service.GenerationJobService;
@@ -49,6 +50,7 @@ public class IdeaServiceImpl extends ServiceImpl<IdeaMapper, Idea> implements Id
     private final AiOrchestratorService aiOrchestratorService;
     private final ModelConfigMapper modelConfigMapper;
     private final TransactionTemplate transactionTemplate;
+    private final IdeaConverter ideaConverter;
 
     /**
      * 注入创意流程所需的 Mapper、任务服务、版本服务和 AI 编排服务。
@@ -59,7 +61,7 @@ public class IdeaServiceImpl extends ServiceImpl<IdeaMapper, Idea> implements Id
             GenerationJobService generationJobService,
             VersionService versionService,
             AiOrchestratorService aiOrchestratorService, ModelConfigMapper modelConfigMapper,
-            TransactionTemplate transactionTemplate) {
+            TransactionTemplate transactionTemplate, IdeaConverter ideaConverter) {
         this.ideaEvaluationMapper = ideaEvaluationMapper;
         this.projectMapper = projectMapper;
         this.generationJobService = generationJobService;
@@ -67,6 +69,7 @@ public class IdeaServiceImpl extends ServiceImpl<IdeaMapper, Idea> implements Id
         this.aiOrchestratorService = aiOrchestratorService;
         this.modelConfigMapper = modelConfigMapper;
         this.transactionTemplate = transactionTemplate;
+        this.ideaConverter = ideaConverter;
     }
 
     /**
@@ -139,12 +142,27 @@ public class IdeaServiceImpl extends ServiceImpl<IdeaMapper, Idea> implements Id
     @Override
     public List<IdeaResponse> listIdeas(Long projectId) {
         requireProject(projectId);
-        return list(new LambdaQueryWrapper<Idea>()
+        List<Idea> ideas = list(new LambdaQueryWrapper<Idea>()
                         .eq(Idea::getProjectId, projectId)
                         .orderByDesc(Idea::getSelectedAt)
-                        .orderByDesc(Idea::getUpdatedAt))
+                        .orderByDesc(Idea::getUpdatedAt));
+        if (ideas.isEmpty()) {
+            return List.of();
+        }
+
+        List<Long> ideaIds = ideas.stream().map(Idea::getId).toList();
+        Map<Long, IdeaEvaluation> latestEvaluations = ideaEvaluationMapper.selectList(
+                        new LambdaQueryWrapper<IdeaEvaluation>()
+                                .in(IdeaEvaluation::getIdeaId, ideaIds)
+                                .orderByDesc(IdeaEvaluation::getRoundNo)
+                                .orderByDesc(IdeaEvaluation::getCreatedAt))
                 .stream()
-                .map(this::toResponse)
+                .collect(java.util.stream.Collectors.toMap(
+                        IdeaEvaluation::getIdeaId,
+                        evaluation -> evaluation,
+                        (first, ignored) -> first));
+        return ideas.stream()
+                .map(idea -> ideaConverter.toResponse(idea, latestEvaluations.get(idea.getId())))
                 .toList();
     }
 
@@ -153,7 +171,7 @@ public class IdeaServiceImpl extends ServiceImpl<IdeaMapper, Idea> implements Id
      */
     @Override
     @Transactional
-    public IdeaResponse updateIdea(Long ideaId, IdeaUpdateRequest request) {
+    public void updateIdea(Long ideaId, IdeaUpdateRequest request) {
         Idea idea = requireIdea(ideaId);
         idea.setTitle(request.getTitle())
                 .setSellingPoints(request.getSellingPoints() == null ? List.of() : request.getSellingPoints())
@@ -171,7 +189,6 @@ public class IdeaServiceImpl extends ServiceImpl<IdeaMapper, Idea> implements Id
                 defaultText(request.getChangeNote(), "用户直接修改创意"),
                 idea.getModelConfigId(),
                 null);
-        return toResponse(idea);
     }
 
     /**
@@ -217,7 +234,7 @@ public class IdeaServiceImpl extends ServiceImpl<IdeaMapper, Idea> implements Id
      */
     @Override
     @Transactional
-    public IdeaResponse selectIdea(Long ideaId) {
+    public void selectIdea(Long ideaId) {
         Idea idea = requireIdea(ideaId);
         update(new LambdaUpdateWrapper<Idea>()
                 .eq(Idea::getProjectId, idea.getProjectId())
@@ -238,7 +255,6 @@ public class IdeaServiceImpl extends ServiceImpl<IdeaMapper, Idea> implements Id
                 "选定创意方案",
                 idea.getModelConfigId(),
                 null);
-        return toResponse(idea);
     }
 
     @Override
@@ -264,7 +280,7 @@ public class IdeaServiceImpl extends ServiceImpl<IdeaMapper, Idea> implements Id
      * 生成单个创意候选并保存评估、任务和版本记录。
      */
     private IdeaResponse createGeneratedIdea(Project project, IdeaGenerateRequest request) {
-        String genreText = String.join(" + ", JsonUtils.toStringList(project.getGenres()));
+        String genreText = String.join(" + ", project.getGenres() == null ? List.of() : project.getGenres());
         Map<String, Object> context = ideaContext(project, request, genreText);
 
         ModelConfig config = modelConfigMapper.selectOne(
@@ -429,26 +445,7 @@ public class IdeaServiceImpl extends ServiceImpl<IdeaMapper, Idea> implements Id
      * 使用给定评估数据将创意转换为响应对象。
      */
     private IdeaResponse toResponse(Idea idea, IdeaEvaluation evaluation) {
-        return IdeaResponse.builder()
-                .id(idea.getId())
-                .title(idea.getTitle())
-                .sellingPoints(idea.getSellingPoints())
-                .worldview(idea.getWorldview())
-                .mainConflict(idea.getMainConflict())
-                .estimatedWordCount(idea.getEstimatedWordCount())
-                .summary(idea.getSummary())
-                .longFormPotentialScore(score(evaluation == null ? null : evaluation.getLongFormPotentialScore()))
-                .conflictScore(score(evaluation == null ? null : evaluation.getConflictScore()))
-                .noveltyScore(score(evaluation == null ? null : evaluation.getNoveltyScore()))
-                .beginnerFriendlinessScore(score(evaluation == null ? null : evaluation.getBeginnerFriendlinessScore()))
-                .platformFitScore(score(evaluation == null ? null : evaluation.getPlatformFitScore()))
-                .riskLevel(evaluation == null ? null : evaluation.getRiskLevel())
-                .strengths(evaluation == null ? List.of() : defaultList(evaluation.getStrengths()))
-                .risks(evaluation == null ? List.of() : defaultList(evaluation.getRisks()))
-                .suggestions(evaluation == null ? List.of() : defaultList(evaluation.getSuggestions()))
-                .overallComment(evaluation == null ? "" : defaultText(evaluation.getOverallComment(), ""))
-                .status(idea.getStatus())
-                .build();
+        return ideaConverter.toResponse(idea, evaluation);
     }
 
     /**
@@ -537,18 +534,10 @@ public class IdeaServiceImpl extends ServiceImpl<IdeaMapper, Idea> implements Id
     /**
      * 将浮点评分四舍五入为整数评分。
      */
-    private Integer score(Double value) {
-        return value == null ? null : (int) Math.round(value);
-    }
-
     /**
      * 为空白文本提供默认值。
      */
     private String defaultText(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value;
-    }
-
-    private <T> List<T> defaultList(List<T> values) {
-        return values == null ? List.of() : values;
     }
 }

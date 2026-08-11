@@ -6,6 +6,7 @@ import com.jjxmas.ainovelstudio.ai.AiOrchestratorService;
 import com.jjxmas.ainovelstudio.common.exception.BusinessException;
 import com.jjxmas.ainovelstudio.common.exception.ErrorCode;
 import com.jjxmas.ainovelstudio.common.util.JsonUtils;
+import com.jjxmas.ainovelstudio.converter.SettingWorkflowConverter;
 import com.jjxmas.ainovelstudio.mapper.EntityRelationMapper;
 import com.jjxmas.ainovelstudio.mapper.EntityStateRecordMapper;
 import com.jjxmas.ainovelstudio.mapper.IdeaMapper;
@@ -63,6 +64,7 @@ public class SettingWorkflowServiceImpl implements SettingWorkflowService {
     private final SettingLibraryService settingLibraryService;
     private final GenerationJobService generationJobService;
     private final AiOrchestratorService aiOrchestratorService;
+    private final SettingWorkflowConverter settingWorkflowConverter;
 
     public SettingWorkflowServiceImpl(
             SettingWorkflowRunMapper settingWorkflowRunMapper,
@@ -78,7 +80,8 @@ public class SettingWorkflowServiceImpl implements SettingWorkflowService {
             EntityStateRecordMapper entityStateRecordMapper,
             SettingLibraryService settingLibraryService,
             GenerationJobService generationJobService,
-            AiOrchestratorService aiOrchestratorService) {
+            AiOrchestratorService aiOrchestratorService,
+            SettingWorkflowConverter settingWorkflowConverter) {
         this.settingWorkflowRunMapper = settingWorkflowRunMapper;
         this.projectMapper = projectMapper;
         this.ideaMapper = ideaMapper;
@@ -93,6 +96,7 @@ public class SettingWorkflowServiceImpl implements SettingWorkflowService {
         this.settingLibraryService = settingLibraryService;
         this.generationJobService = generationJobService;
         this.aiOrchestratorService = aiOrchestratorService;
+        this.settingWorkflowConverter = settingWorkflowConverter;
     }
 
     @Override
@@ -344,7 +348,7 @@ public class SettingWorkflowServiceImpl implements SettingWorkflowService {
     private Map<String, Object> settingContext(Project project, Idea idea) {
         return Map.of(
                 "projectTitle", text(project.getTitle()),
-                "genres", text(project.getGenres()),
+                "genres", String.join(" + ", project.getGenres() == null ? List.of() : project.getGenres()),
                 "platformTarget", text(project.getPlatformTarget()),
                 "stylePreference", text(project.getStylePreference()),
                 "projectBrief", text(project.getProjectBrief()),
@@ -499,17 +503,11 @@ public class SettingWorkflowServiceImpl implements SettingWorkflowService {
     }
 
     private SettingWorkflowResponse toResponse(SettingWorkflowRun run) {
-        return SettingWorkflowResponse.builder()
-                .id(run.getId())
-                .projectId(run.getProjectId())
-                .sourceIdeaId(run.getSourceIdeaId())
-                .status(run.getStatus())
-                .blueprint(JsonUtils.toMap(run.getBlueprintJson()))
-                .draft(JsonUtils.toMap(run.getDraftJson()))
-                .checks(JsonUtils.toMap(run.getCheckJson()))
-                .blueprintConfirmedAt(run.getBlueprintConfirmedAt())
-                .committedAt(run.getCommittedAt())
-                .build();
+        SettingWorkflowResponse response = settingWorkflowConverter.toResponse(run);
+        response.setBlueprint(JsonUtils.toMap(run.getBlueprintJson()));
+        response.setDraft(JsonUtils.toMap(run.getDraftJson()));
+        response.setChecks(JsonUtils.toMap(run.getCheckJson()));
+        return response;
     }
 
     private String requiredText(Map<String, Object> map, String key, String message) {

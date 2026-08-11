@@ -14,16 +14,13 @@ import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * 大纲接口，负责全局大纲生成、维护、确认和章节大纲生成。
- */
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/v1")
@@ -32,24 +29,18 @@ public class OutlineController {
     private final OutlineService outlineService;
     private final OutlineWorkflowService outlineWorkflowService;
 
-    /**
-     * 检查大纲模块接口是否可用。
-     */
     @GetMapping("/global-outline/ping")
     public ApiResponse<String> ping() {
-        return ApiResponse.success("大纲模块已就绪");
+        return ApiResponse.success("outline-module-ready");
     }
 
-    /**
-     * 为指定项目生成全局大纲。
-     */
     @PostMapping("/projects/{projectId}/global-outline/generate")
     public ApiResponse<OutlineResponse> generateGlobalOutline(
             @PathVariable Long projectId,
             @Valid @RequestBody OutlineGenerateRequest request) {
         request.setProjectId(projectId);
         request.setOutlineLevel("global");
-        return ApiResponse.success("全局大纲生成完成", outlineService.generateOutline(request));
+        return ApiResponse.success("global-outline-generated", outlineService.generateOutline(request));
     }
 
     @PostMapping("/projects/{projectId}/outline-workflows")
@@ -57,7 +48,7 @@ public class OutlineController {
             @PathVariable Long projectId,
             @Valid @RequestBody OutlineWorkflowCreateRequest request) {
         request.setProjectId(projectId);
-        return ApiResponse.success("大纲流程草案已生成", outlineWorkflowService.startWorkflow(request));
+        return ApiResponse.success("outline-workflow-started", outlineWorkflowService.startWorkflow(request));
     }
 
     @GetMapping("/projects/{projectId}/outline-workflows/latest")
@@ -72,68 +63,51 @@ public class OutlineController {
 
     @PostMapping("/outline-workflows/{workflowId}/commit")
     public ApiResponse<OutlineResponse> commitOutlineWorkflow(@PathVariable Long workflowId) {
-        return ApiResponse.success("大纲流程已提交", outlineWorkflowService.commitWorkflow(workflowId));
+        return ApiResponse.success("outline-workflow-committed", outlineWorkflowService.commitWorkflow(workflowId));
     }
 
-    /**
-     * 查询指定项目的全局大纲。
-     */
     @GetMapping("/projects/{projectId}/global-outline")
     public ApiResponse<OutlineResponse> getGlobalOutline(@PathVariable Long projectId) {
         return ApiResponse.success(outlineService.getGlobalOutline(projectId));
     }
 
-    /**
-     * 按项目 ID 更新全局大纲。
-     */
     @PatchMapping("/projects/{projectId}/global-outline")
-    public ApiResponse<OutlineResponse> updateGlobalOutline(
+    public ApiResponse<Void> updateGlobalOutline(
             @PathVariable Long projectId,
             @Valid @RequestBody OutlineUpdateRequest request) {
-        return ApiResponse.success("全局大纲修改已保存", outlineService.updateGlobalOutline(projectId, request));
+        outlineService.updateGlobalOutline(projectId, request);
+        return ApiResponse.success("global-outline-updated", null);
     }
 
-    /**
-     * 按大纲 ID 更新全局大纲。
-     */
     @PatchMapping("/global-outlines/{outlineId}")
-    public ApiResponse<OutlineResponse> updateGlobalOutlineById(
+    public ApiResponse<Void> updateGlobalOutlineById(
             @PathVariable Long outlineId,
             @Valid @RequestBody OutlineUpdateRequest request) {
-        return ApiResponse.success("全局大纲修改已保存", outlineService.updateGlobalOutlineById(outlineId, request));
+        outlineService.updateGlobalOutlineById(outlineId, request);
+        return ApiResponse.success("global-outline-updated", null);
     }
 
-    /**
-     * 根据修改指令重新生成全局大纲。
-     */
     @PostMapping("/projects/{projectId}/global-outline/regenerate")
     public ApiResponse<OutlineResponse> rewriteGlobalOutline(
             @PathVariable Long projectId,
             @Valid @RequestBody OutlineRewriteRequest request) {
-        return ApiResponse.success("全局大纲重生成完成", outlineService.rewriteGlobalOutline(projectId, request));
+        return ApiResponse.success("global-outline-rewritten", outlineService.rewriteGlobalOutline(projectId, request));
     }
 
-    /**
-     * 按项目 ID 确认全局大纲。
-     */
     @PostMapping("/projects/{projectId}/global-outline/confirm")
-    public ApiResponse<OutlineResponse> confirmGlobalOutline(@PathVariable Long projectId) {
-        return ApiResponse.success("全局大纲已确认", outlineService.confirmGlobalOutline(projectId));
+    public ApiResponse<Void> confirmGlobalOutline(@PathVariable Long projectId) {
+        outlineService.confirmGlobalOutline(projectId);
+        return ApiResponse.success("global-outline-confirmed", null);
     }
 
-    /**
-     * 按大纲 ID 确认全局大纲。
-     */
     @PostMapping("/global-outlines/{outlineId}/confirm")
-    public ApiResponse<OutlineResponse> confirmGlobalOutlineById(@PathVariable Long outlineId) {
-        return ApiResponse.success("全局大纲已确认", outlineService.confirmGlobalOutlineById(outlineId));
+    public ApiResponse<Void> confirmGlobalOutlineById(@PathVariable Long outlineId) {
+        outlineService.confirmGlobalOutlineById(outlineId);
+        return ApiResponse.success("global-outline-confirmed", null);
     }
 
-    /**
-     * 基于已确认的全局大纲生成卷和章节大纲。
-     */
     @PostMapping({"/projects/{projectId}/chapters/generate-outline", "/projects/{projectId}/chapter-outlines/generate"})
     public ApiResponse<List<ChapterResponse>> generateChapterOutlines(@PathVariable Long projectId) {
-        return ApiResponse.success("分卷与章节大纲生成完成", outlineService.generateChapterOutlines(projectId));
+        return ApiResponse.success("chapter-outlines-generated", outlineService.generateChapterOutlines(projectId));
     }
 }

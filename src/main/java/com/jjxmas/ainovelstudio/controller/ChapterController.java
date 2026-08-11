@@ -47,8 +47,9 @@ public class ChapterController {
      * 确认指定章节的大纲。
      */
     @PostMapping("/chapters/{chapterId}/confirm-outline")
-    public ApiResponse<ChapterResponse> confirmChapterOutline(@PathVariable Long chapterId) {
-        return ApiResponse.success("章节大纲已确认", chapterService.confirmChapterOutline(chapterId));
+    public ApiResponse<Void> confirmChapterOutline(@PathVariable Long chapterId) {
+        chapterService.confirmChapterOutline(chapterId);
+        return ApiResponse.success("章节大纲已确认", null);
     }
 
     /**
@@ -66,10 +67,11 @@ public class ChapterController {
      * 更新指定章节的正文内容。
      */
     @PatchMapping({"/chapters/{chapterId}", "/chapters/{chapterId}/content"})
-    public ApiResponse<ChapterResponse> updateChapterContent(
+    public ApiResponse<Void> updateChapterContent(
             @PathVariable Long chapterId,
             @Valid @RequestBody ChapterContentUpdateRequest request) {
-        return ApiResponse.success("章节正文修改已保存", chapterService.updateChapterContent(chapterId, request));
+        chapterService.updateChapterContent(chapterId, request);
+        return ApiResponse.success("章节正文修改已保存", null);
     }
 
     /**
