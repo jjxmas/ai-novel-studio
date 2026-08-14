@@ -68,7 +68,7 @@ public class ProjectController {
     @PostMapping("/{projectId}/story-rebuild")
     public ApiResponse<StoryRebuildResult> rebuildStoryState(
             @PathVariable Long projectId,
-            @RequestBody StoryRebuildRequest request) {
+            @Valid @RequestBody StoryRebuildRequest request) {
         return ApiResponse.success(storyRebuildService.rebuildFromChapter(
                 projectId,
                 request == null ? null : request.getStartChapterNo(),

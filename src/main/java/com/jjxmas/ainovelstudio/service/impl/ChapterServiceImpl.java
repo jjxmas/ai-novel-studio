@@ -14,6 +14,7 @@ import com.jjxmas.ainovelstudio.pojo.dto.ChapterContentUpdateRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.ChapterContext;
 import com.jjxmas.ainovelstudio.pojo.dto.ChapterGenerateRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.ChapterGenerationResult;
+import com.jjxmas.ainovelstudio.pojo.dto.ChapterQualityCheckResult;
 import com.jjxmas.ainovelstudio.pojo.dto.ChapterResponse;
 import com.jjxmas.ainovelstudio.pojo.dto.ChapterRewriteRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.ChapterStreamEvent;
@@ -183,10 +184,13 @@ public class ChapterServiceImpl extends ServiceImpl<ChapterMapper, Chapter> impl
         if (persisted == null) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "章节正文保存失败");
         }
-        chapterPostProcessService.refreshChapter(persisted.chapter().getId(), request.getModelConfigId());
+        ChapterQualityCheckResult qualityCheck = chapterPostProcessService.refreshChapter(
+                persisted.chapter().getId(),
+                request.getModelConfigId());
         return new ChapterGenerationResult(
                 chapterConverter.toResponse(persisted.chapter()),
-                persisted.generationJobId());
+                persisted.generationJobId(),
+                qualityCheck);
     }
 
     @Override

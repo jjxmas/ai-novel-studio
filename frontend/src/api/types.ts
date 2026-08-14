@@ -451,6 +451,20 @@ export interface ChapterGenerationBatchCreateRequest {
   instruction?: string;
 }
 
+export interface ChapterQualityIssue {
+  type: string;
+  severity: string;
+  description: string;
+  suggestion: string;
+  reference?: string | null;
+}
+
+export interface ChapterQualityReport {
+  issueCount: number;
+  issues: ChapterQualityIssue[];
+  summary: string;
+}
+
 export interface ChapterGenerationBatchItem {
   id: number;
   chapterId: number;
@@ -458,14 +472,20 @@ export interface ChapterGenerationBatchItem {
   status: 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped' | 'cancelled' | string;
   attemptCount: number;
   generationJobId?: number | null;
+  qualityStatus: 'pending' | 'completed' | 'failed' | 'skipped' | 'not_run' | string;
+  qualityIssueCount: number;
+  qualityReport?: ChapterQualityReport | null;
+  qualityErrorMessage?: string | null;
   errorMessage?: string | null;
   startedAt?: string | null;
   finishedAt?: string | null;
 }
 
-export interface ChapterGenerationBatch {
+export interface ChapterGenerationBatchSummary {
   batchId: number;
   projectId: number;
+  batchType: string;
+  modelConfigId?: number | null;
   status: 'queued' | 'running' | 'paused' | 'cancel_requested' | 'cancelled' | 'completed' | 'failed' | 'partial_failed' | string;
   totalCount: number;
   pendingCount: number;
@@ -473,9 +493,16 @@ export interface ChapterGenerationBatch {
   succeededCount: number;
   failedCount: number;
   skippedCount: number;
+  qualityCheckedCount: number;
+  qualityFailedCount: number;
+  qualityIssueCount: number;
   errorMessage?: string | null;
+  createdAt?: string | null;
   startedAt?: string | null;
   finishedAt?: string | null;
+}
+
+export interface ChapterGenerationBatch extends ChapterGenerationBatchSummary {
   items: ChapterGenerationBatchItem[];
 }
 
@@ -507,6 +534,43 @@ export interface ProjectMemory {
   middleMemories: StoryMemory[];
   recentWindows: StoryMemory[];
   recentChapterSummaries: ChapterSummary[];
+}
+
+export interface StoryDirtyMark {
+  id: number;
+  sourceChapterId?: number | null;
+  sourceChapterNo?: number | null;
+  dirtyFromChapterNo: number;
+  dirtyScope: string;
+  reasonType: string;
+  reasonNote: string;
+  status: string;
+  createdAt?: string | null;
+}
+
+export interface StoryDirtyMarkSnapshot {
+  projectId: number;
+  queryChapterNo?: number | null;
+  activeDirtyMarkCount: number;
+  earliestDirtyChapterNo?: number | null;
+  activeDirtyMarks: StoryDirtyMark[];
+}
+
+export interface StoryRebuildResult {
+  projectId: number;
+  requestedStartChapterNo?: number | null;
+  actualStartChapterNo?: number | null;
+  endChapterNo?: number | null;
+  processedChapterCount: number;
+  skippedChapterCount: number;
+  activeDirtyMarkCountBefore: number;
+  resolvedDirtyMarkCount: number;
+  activeDirtyMarkCountAfter: number;
+  earliestDirtyChapterNoAfter?: number | null;
+  processedChapterNos: number[];
+  skippedChapterNos: number[];
+  status: string;
+  note: string;
 }
 
 export interface CheckResult {

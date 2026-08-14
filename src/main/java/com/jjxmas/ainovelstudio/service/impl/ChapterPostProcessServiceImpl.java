@@ -1,9 +1,13 @@
 package com.jjxmas.ainovelstudio.service.impl;
 
 import com.jjxmas.ainovelstudio.mapper.ChapterMapper;
+import com.jjxmas.ainovelstudio.pojo.dto.ChapterQualityCheckResult;
+import com.jjxmas.ainovelstudio.pojo.dto.CheckRequest;
+import com.jjxmas.ainovelstudio.pojo.dto.CheckResponse;
 import com.jjxmas.ainovelstudio.pojo.entity.Chapter;
 import com.jjxmas.ainovelstudio.service.ChapterMemoryService;
 import com.jjxmas.ainovelstudio.service.ChapterPostProcessService;
+import com.jjxmas.ainovelstudio.service.CheckService;
 import com.jjxmas.ainovelstudio.service.GenerationJobService;
 import com.jjxmas.ainovelstudio.service.StoryDirtyMarkService;
 import java.util.Map;
@@ -21,26 +25,33 @@ public class ChapterPostProcessServiceImpl implements ChapterPostProcessService 
     private final ChapterMemoryService chapterMemoryService;
     private final StoryDirtyMarkService storyDirtyMarkService;
     private final GenerationJobService generationJobService;
+    private final CheckService checkService;
 
     public ChapterPostProcessServiceImpl(
             ChapterMapper chapterMapper,
             ChapterMemoryService chapterMemoryService,
             StoryDirtyMarkService storyDirtyMarkService,
-            GenerationJobService generationJobService) {
+            GenerationJobService generationJobService,
+            CheckService checkService) {
         this.chapterMapper = chapterMapper;
         this.chapterMemoryService = chapterMemoryService;
         this.storyDirtyMarkService = storyDirtyMarkService;
         this.generationJobService = generationJobService;
+        this.checkService = checkService;
     }
 
     @Override
-    public void refreshChapter(Long chapterId, Long modelConfigId) {
-        synchronouslyRefreshChapter(chapterId, modelConfigId, null, null);
+    public ChapterQualityCheckResult refreshChapter(Long chapterId, Long modelConfigId) {
+        return synchronouslyRefreshChapter(chapterId, modelConfigId, null, null);
     }
 
     @Override
-    public void refreshChapterAndMarkDirty(Long chapterId, Long modelConfigId, String dirtyReason, String dirtyNote) {
-        synchronouslyRefreshChapter(chapterId, modelConfigId, dirtyReason, dirtyNote);
+    public ChapterQualityCheckResult refreshChapterAndMarkDirty(
+            Long chapterId,
+            Long modelConfigId,
+            String dirtyReason,
+            String dirtyNote) {
+        return synchronouslyRefreshChapter(chapterId, modelConfigId, dirtyReason, dirtyNote);
     }
 
     @Override
@@ -68,13 +79,13 @@ public class ChapterPostProcessServiceImpl implements ChapterPostProcessService 
         }
     }
 
-    private void synchronouslyRefreshChapter(
+    private ChapterQualityCheckResult synchronouslyRefreshChapter(
             Long chapterId,
             Long modelConfigId,
             String dirtyReason,
             String dirtyNote) {
         try {
-            doRefreshChapter(chapterId, modelConfigId, dirtyReason, dirtyNote);
+            return doRefreshChapter(chapterId, modelConfigId, dirtyReason, dirtyNote);
         } catch (RuntimeException ex) {
             try {
                 recordFailure(chapterId, modelConfigId, dirtyReason, dirtyNote, ex);
@@ -85,7 +96,11 @@ public class ChapterPostProcessServiceImpl implements ChapterPostProcessService 
         }
     }
 
-    private void doRefreshChapter(Long chapterId, Long modelConfigId, String dirtyReason, String dirtyNote) {
+    private ChapterQualityCheckResult doRefreshChapter(
+            Long chapterId,
+            Long modelConfigId,
+            String dirtyReason,
+            String dirtyNote) {
         Chapter chapter = chapterMapper.selectById(chapterId);
         if (chapter == null) {
             throw new IllegalArgumentException("Chapter does not exist: " + chapterId);
@@ -93,6 +108,29 @@ public class ChapterPostProcessServiceImpl implements ChapterPostProcessService 
         chapterMemoryService.refreshAfterChapterContent(chapter, modelConfigId);
         if (dirtyReason != null && !dirtyReason.isBlank()) {
             storyDirtyMarkService.markDownstreamDirty(chapter, dirtyReason, dirtyNote);
+        }
+        return runContinuityCheck(chapter);
+    }
+
+    private ChapterQualityCheckResult runContinuityCheck(Chapter chapter) {
+        CheckRequest request = new CheckRequest();
+        request.setProjectId(chapter.getProjectId());
+        request.setChapterId(chapter.getId());
+        request.setCheckType("continuity");
+        try {
+            CheckResponse report = checkService.runCheck(request);
+            return ChapterQualityCheckResult.builder()
+                    .status("completed")
+                    .issueCount(report.getIssueCount())
+                    .report(report)
+                    .build();
+        } catch (RuntimeException ex) {
+            log.error("Chapter continuity check failed. chapterId={}", chapter.getId(), ex);
+            return ChapterQualityCheckResult.builder()
+                    .status("failed")
+                    .issueCount(0)
+                    .errorMessage(ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage())
+                    .build();
         }
     }
 

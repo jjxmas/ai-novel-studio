@@ -3,6 +3,7 @@ import type {
   Chapter,
   ChapterGenerationBatch,
   ChapterGenerationBatchCreateRequest,
+  ChapterGenerationBatchSummary,
   ChapterOutlineContinueRequest,
   ChapterSummary,
   CheckResult,
@@ -29,6 +30,7 @@ import type {
   SettingWorkflow,
   StoryCharacter,
   StoryCharacterRequest,
+  StoryDirtyMarkSnapshot,
   StoryEvent,
   StoryEventRequest,
   StoryItem,
@@ -36,6 +38,7 @@ import type {
   StoryLocation,
   StoryLocationRequest,
   StoryMemory,
+  StoryRebuildResult,
   WorkflowStage,
   WorldRule,
   WorldRuleRequest,
@@ -345,6 +348,8 @@ function mapChapterGenerationBatch(data: any): ChapterGenerationBatch {
   return {
     batchId: data.batchId,
     projectId: data.projectId,
+    batchType: data.batchType ?? 'chapter_content',
+    modelConfigId: data.modelConfigId ?? null,
     status: data.status ?? 'queued',
     totalCount: data.totalCount ?? 0,
     pendingCount: data.pendingCount ?? 0,
@@ -352,7 +357,11 @@ function mapChapterGenerationBatch(data: any): ChapterGenerationBatch {
     succeededCount: data.succeededCount ?? 0,
     failedCount: data.failedCount ?? 0,
     skippedCount: data.skippedCount ?? 0,
+    qualityCheckedCount: data.qualityCheckedCount ?? 0,
+    qualityFailedCount: data.qualityFailedCount ?? 0,
+    qualityIssueCount: data.qualityIssueCount ?? 0,
     errorMessage: data.errorMessage ?? null,
+    createdAt: data.createdAt ?? null,
     startedAt: data.startedAt ?? null,
     finishedAt: data.finishedAt ?? null,
     items: (data.items ?? []).map((item: any) => ({
@@ -362,11 +371,20 @@ function mapChapterGenerationBatch(data: any): ChapterGenerationBatch {
       status: item.status ?? 'pending',
       attemptCount: item.attemptCount ?? 0,
       generationJobId: item.generationJobId ?? null,
+      qualityStatus: item.qualityStatus ?? 'not_run',
+      qualityIssueCount: item.qualityIssueCount ?? 0,
+      qualityReport: item.qualityReport ?? null,
+      qualityErrorMessage: item.qualityErrorMessage ?? null,
       errorMessage: item.errorMessage ?? null,
       startedAt: item.startedAt ?? null,
       finishedAt: item.finishedAt ?? null,
     })),
   };
+}
+
+function mapChapterGenerationBatchSummary(data: any): ChapterGenerationBatchSummary {
+  const { items: _items, ...summary } = mapChapterGenerationBatch(data);
+  return summary;
 }
 
 function mapChapterStreamEvent(event: any, projectId?: number): ChapterStreamEvent {
@@ -604,6 +622,9 @@ export const novelApi = {
     post<any>(`/projects/${projectId}/chapter-generation-batches`, payload).then(mapChapterGenerationBatch),
   getChapterGenerationBatch: (batchId: number) =>
     request<any>(`/chapter-generation-batches/${batchId}`).then(mapChapterGenerationBatch),
+  listChapterGenerationBatches: (projectId: number) =>
+    request<any[]>(`/projects/${projectId}/chapter-generation-batches`)
+      .then((items) => items.map(mapChapterGenerationBatchSummary)),
   getLatestChapterGenerationBatch: (projectId: number) =>
     request<any>(`/projects/${projectId}/chapter-generation-batches/latest`).then(mapChapterGenerationBatch),
   cancelChapterGenerationBatch: (batchId: number) =>
@@ -652,6 +673,15 @@ export const novelApi = {
     ),
   getProjectMemory: (projectId: number) =>
     request<any>(`/projects/${projectId}/memories`).then(mapProjectMemory),
+  getStoryDirtyMarks: (projectId: number, chapterNo?: number) =>
+    request<StoryDirtyMarkSnapshot>(
+      `/projects/${projectId}/story-dirty-marks${chapterNo == null ? '' : `?chapterNo=${chapterNo}`}`,
+    ),
+  rebuildStoryState: (projectId: number, startChapterNo?: number, modelConfigId?: number) =>
+    post<StoryRebuildResult>(`/projects/${projectId}/story-rebuild`, {
+      startChapterNo,
+      modelConfigId,
+    }),
 
   createCheck: (projectId: number) =>
     post<any>('/checks', { projectId, checkType: 'all' }).then((result) =>

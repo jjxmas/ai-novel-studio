@@ -9,6 +9,7 @@ import ModelConfigPage from '@/pages/ModelConfigPage.vue';
 import OutlinePage from '@/pages/OutlinePage.vue';
 import ProjectCreatePage from '@/pages/ProjectCreatePage.vue';
 import SettingLibraryPage from '@/pages/SettingLibraryPage.vue';
+import TaskCenterPage from '@/pages/TaskCenterPage.vue';
 import WorkbenchPage from '@/pages/WorkbenchPage.vue';
 
 const routes: RouteRecordRaw[] = [
@@ -77,6 +78,15 @@ const routes: RouteRecordRaw[] = [
         meta: {
           title: '章节页',
           description: '预留章节大纲、正文、上下文和编辑区。',
+        },
+      },
+      {
+        path: 'tasks',
+        name: 'tasks',
+        component: TaskCenterPage,
+        meta: {
+          title: '任务中心',
+          description: '查看长时间运行任务的进度、失败详情和历史记录。',
         },
       },
       {

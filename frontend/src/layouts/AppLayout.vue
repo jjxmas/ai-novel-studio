@@ -15,6 +15,7 @@ const navItems = [
   { label: '设定库', to: '/settings' },
   { label: '大纲页', to: '/outlines' },
   { label: '章节页', to: '/chapters' },
+  { label: '任务中心', to: '/tasks' },
   { label: '检查页', to: '/checks' },
   { label: '导出页', to: '/exports' },
 ];

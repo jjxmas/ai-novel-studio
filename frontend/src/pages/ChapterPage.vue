@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
 import { novelApi } from '@/api/novelApi';
-import type { ChapterGenerationBatch } from '@/api/types';
+import type { ChapterGenerationBatch, StoryDirtyMarkSnapshot, StoryRebuildResult } from '@/api/types';
 import PageShell from '@/components/PageShell.vue';
 import { useNovelWorkspace } from '@/composables/useNovelWorkspace';
 
@@ -28,10 +28,16 @@ const batchSkipExistingContent = ref(true);
 const batchInstruction = ref('');
 const batchBusy = ref(false);
 const activeBatch = ref<ChapterGenerationBatch | null>(null);
+const dirtySnapshot = ref<StoryDirtyMarkSnapshot | null>(null);
+const dirtyLoading = ref(false);
+const rebuildBusy = ref(false);
+const rebuildStartChapterNo = ref<number | null>(null);
+const rebuildResult = ref<StoryRebuildResult | null>(null);
 let batchPollTimer: number | null = null;
 
 const terminalBatchStatuses = new Set(['cancelled', 'completed', 'failed', 'partial_failed']);
 const enabledModels = computed(() => state.modelConfigs.filter((model) => model.enabled));
+const rebuildableChapters = computed(() => state.chapters.filter((chapter) => chapter.content.trim().length > 0));
 const batchControlsLocked = computed(() => batchBusy.value
   || Boolean(activeBatch.value && !terminalBatchStatuses.has(activeBatch.value.status)));
 const batchEndChapterNo = computed(() => batchStartChapterNo.value + Math.max(batchCount.value, 1) - 1);
@@ -125,6 +131,7 @@ async function refreshActiveBatch() {
     await Promise.all([
       loadChapters().catch(() => undefined),
       loadProjectMemory().catch(() => undefined),
+      loadDirtyMarks().catch(() => undefined),
     ]);
   }
 }
@@ -143,6 +150,54 @@ async function loadLatestBatch(projectId: number) {
   activeBatch.value = batch;
   if (batch && !terminalBatchStatuses.has(batch.status) && batch.status !== 'paused') {
     startBatchPolling();
+  }
+}
+
+async function loadDirtyMarks() {
+  if (!activeProject.value || dirtyLoading.value) {
+    return;
+  }
+  const projectId = activeProject.value.id;
+  dirtyLoading.value = true;
+  try {
+    const snapshot = await novelApi.getStoryDirtyMarks(projectId);
+    if (activeProject.value?.id === projectId) {
+      dirtySnapshot.value = snapshot;
+      const earliest = snapshot.earliestDirtyChapterNo;
+      if (rebuildStartChapterNo.value == null && earliest != null) {
+        rebuildStartChapterNo.value = earliest;
+      }
+    }
+  } catch (error) {
+    state.lastMessage = error instanceof Error ? error.message.replace('BUSINESS_ERROR:', '') : '脏标记加载失败';
+  } finally {
+    if (activeProject.value?.id === projectId) {
+      dirtyLoading.value = false;
+    }
+  }
+}
+
+async function submitRebuild() {
+  if (!activeProject.value || rebuildStartChapterNo.value == null || batchModelConfigId.value == null || rebuildBusy.value) {
+    return;
+  }
+  rebuildBusy.value = true;
+  rebuildResult.value = null;
+  try {
+    rebuildResult.value = await novelApi.rebuildStoryState(
+      activeProject.value.id,
+      rebuildStartChapterNo.value,
+      batchModelConfigId.value,
+    );
+    state.lastMessage = rebuildResult.value.note;
+    await Promise.all([
+      loadDirtyMarks(),
+      loadProjectMemory().catch(() => undefined),
+    ]);
+  } catch (error) {
+    state.lastMessage = error instanceof Error ? error.message.replace('BUSINESS_ERROR:', '') : '故事状态回算失败';
+  } finally {
+    rebuildBusy.value = false;
   }
 }
 
@@ -225,14 +280,23 @@ watch(enabledModels, (models) => {
 watch(() => activeProject.value?.id, (projectId) => {
   stopBatchPolling();
   activeBatch.value = null;
+  dirtySnapshot.value = null;
+  dirtyLoading.value = false;
+  rebuildResult.value = null;
+  rebuildStartChapterNo.value = null;
   if (projectId) {
     void loadLatestBatch(projectId);
+    void loadDirtyMarks().catch(() => undefined);
   }
 }, { immediate: true });
 
 watch(() => state.chapters, (chapters) => {
   if (chapters.length > 0 && !chapters.some((chapter) => chapter.chapterNo === batchStartChapterNo.value)) {
     batchStartChapterNo.value = chapters[0].chapterNo ?? 1;
+  }
+  if (rebuildableChapters.value.length > 0
+    && !rebuildableChapters.value.some((chapter) => chapter.chapterNo === rebuildStartChapterNo.value)) {
+    rebuildStartChapterNo.value = rebuildableChapters.value[0].chapterNo ?? null;
   }
 }, { deep: true, immediate: true });
 
@@ -320,6 +384,61 @@ onUnmounted(stopBatchPolling);
             <span v-if="item.errorMessage" class="batch-item__error">{{ item.errorMessage }}</span>
           </div>
         </div>
+      </div>
+    </section>
+
+    <section v-if="activeProject" class="card integrity-panel">
+      <div class="card__row">
+        <div>
+          <div class="card__title">数据一致性</div>
+          <p class="helper-text">
+            {{ dirtySnapshot?.earliestDirtyChapterNo
+              ? `第 ${dirtySnapshot.earliestDirtyChapterNo} 章起需要重新计算事实、状态和记忆。`
+              : '当前没有待回算的章节区间。' }}
+          </p>
+        </div>
+        <span class="badge" :class="{ 'badge--warn': Boolean(dirtySnapshot?.activeDirtyMarkCount), 'badge--ok': dirtySnapshot?.activeDirtyMarkCount === 0 }">
+          {{ dirtySnapshot?.activeDirtyMarkCount ?? 0 }} 个脏标记
+        </span>
+      </div>
+
+      <div class="integrity-controls">
+        <label class="field">
+          <span>从章节开始回算</span>
+          <select v-model.number="rebuildStartChapterNo" :disabled="rebuildBusy || batchControlsLocked || rebuildableChapters.length === 0">
+            <option v-for="chapter in rebuildableChapters" :key="chapter.id" :value="chapter.chapterNo">
+              第 {{ chapter.chapterNo }} 章 · {{ chapter.title }}
+            </option>
+          </select>
+        </label>
+        <label class="field">
+          <span>处理模型</span>
+          <select v-model.number="batchModelConfigId" :disabled="rebuildBusy || batchControlsLocked || enabledModels.length === 0">
+            <option v-for="model in enabledModels" :key="model.id" :value="model.id">{{ model.displayName }}</option>
+          </select>
+        </label>
+        <div class="toolbar integrity-actions">
+          <button class="toolbar__button toolbar__button--ghost" type="button" :disabled="dirtyLoading" @click="loadDirtyMarks">
+            {{ dirtyLoading ? '刷新中' : '刷新标记' }}
+          </button>
+          <button class="toolbar__button" type="button" :disabled="rebuildBusy || batchControlsLocked || rebuildStartChapterNo == null || batchModelConfigId == null" @click="submitRebuild">
+            {{ rebuildBusy ? '回算中' : '开始回算' }}
+          </button>
+        </div>
+      </div>
+
+      <div v-if="dirtySnapshot?.activeDirtyMarks.length" class="dirty-list">
+        <div v-for="mark in dirtySnapshot.activeDirtyMarks" :key="mark.id" class="dirty-row">
+          <strong>第 {{ mark.sourceChapterNo ?? '?' }} 章变更</strong>
+          <span>影响第 {{ mark.dirtyFromChapterNo }} 章起</span>
+          <span>{{ mark.reasonNote || mark.reasonType }}</span>
+        </div>
+      </div>
+
+      <div v-if="rebuildResult" class="rebuild-result" :class="{ 'rebuild-result--ok': rebuildResult.status === 'completed' }" aria-live="polite">
+        <strong>{{ rebuildResult.status === 'completed' ? '回算完成' : '无需回算' }}</strong>
+        <span>{{ rebuildResult.note }}</span>
+        <span>处理 {{ rebuildResult.processedChapterCount }} 章，跳过 {{ rebuildResult.skippedChapterCount }} 章，解决 {{ rebuildResult.resolvedDirtyMarkCount }} 个标记。</span>
       </div>
     </section>
 
@@ -421,6 +540,55 @@ onUnmounted(stopBatchPolling);
   margin-bottom: 16px;
 }
 
+.integrity-panel {
+  margin-bottom: 16px;
+}
+
+.integrity-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+  gap: 16px;
+  align-items: end;
+  margin-top: 16px;
+}
+
+.integrity-actions {
+  padding-bottom: 1px;
+}
+
+.dirty-list {
+  display: grid;
+  margin-top: 16px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.dirty-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.7fr) minmax(140px, 0.8fr) minmax(0, 2fr);
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid #e5e7eb;
+  color: #475569;
+  font-size: 13px;
+}
+
+.rebuild-result {
+  display: grid;
+  gap: 4px;
+  margin-top: 16px;
+  padding: 12px 14px;
+  border-left: 3px solid #d97706;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 13px;
+}
+
+.rebuild-result--ok {
+  border-left-color: #16a34a;
+  background: #f0fdf4;
+  color: #166534;
+}
+
 .batch-checkbox {
   display: flex;
   align-items: center;
@@ -485,6 +653,11 @@ onUnmounted(stopBatchPolling);
 }
 
 @media (max-width: 720px) {
+  .integrity-controls,
+  .dirty-row {
+    grid-template-columns: 1fr;
+  }
+
   .batch-item {
     grid-template-columns: 1fr auto;
   }
