@@ -18,4 +18,13 @@ public interface GenerationJobService {
             Long modelConfigId,
             Map<String, Object> input,
             Map<String, Object> output);
+
+    Long recordFailedJob(
+            Long projectId,
+            String jobType,
+            String relatedEntityType,
+            Long relatedEntityId,
+            Long modelConfigId,
+            Map<String, Object> input,
+            String errorMessage);
 }

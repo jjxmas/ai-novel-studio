@@ -1,6 +1,5 @@
 package com.jjxmas.ainovelstudio.ai;
 
-import java.util.Map;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -23,7 +22,7 @@ public class AiGenerateCommand {
 
     private String userPrompt;
 
-    private Map<String, Object> context;
+    private Object context;
 
     private Integer maxTokens;
 

@@ -4,18 +4,17 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
-/**
- * 导出请求“ */
 @Data
 public class ExportRequest {
 
-    @NotNull(message = "作品 ID 不能为空")
+    @NotNull(message = "PROJECT_ID_REQUIRED")
     private Long projectId;
 
-    @NotBlank(message = "导出范围不能为空")
+    @NotBlank(message = "SCOPE_REQUIRED")
     private String scope;
 
-    @NotBlank(message = "导出格式不能为空")
+    @NotBlank(message = "FORMAT_REQUIRED")
     private String format;
-}
 
+    private Long scopeEntityId;
+}

@@ -17,6 +17,7 @@ const {
 
 const activeChapterId = ref<number | null>(null);
 const rewriteSuggestion = ref('');
+const isGeneratingContent = ref(false);
 
 const activeChapter = computed(() => {
   const fallback = state.chapters[0] ?? null;
@@ -38,11 +39,16 @@ const memoryCounts = computed(() => ({
 }));
 
 async function submitGenerateContent() {
-  if (!activeChapter.value) {
+  if (!activeChapter.value || isGeneratingContent.value) {
     return;
   }
-  await generateChapterContent(activeChapter.value.id, rewriteSuggestion.value);
-  rewriteSuggestion.value = '';
+  isGeneratingContent.value = true;
+  try {
+    await generateChapterContent(activeChapter.value.id, rewriteSuggestion.value);
+    rewriteSuggestion.value = '';
+  } finally {
+    isGeneratingContent.value = false;
+  }
 }
 
 async function submitCheck() {
@@ -140,13 +146,13 @@ onMounted(() => {
             ></textarea>
           </label>
           <div class="toolbar">
-            <button class="toolbar__button toolbar__button--ghost" type="button" @click="saveActiveChapterContent">
+            <button class="toolbar__button toolbar__button--ghost" type="button" :disabled="isGeneratingContent" @click="saveActiveChapterContent">
               保存正文
             </button>
-            <button class="toolbar__button" type="button" @click="submitGenerateContent">
+            <button class="toolbar__button" type="button" :disabled="isGeneratingContent" @click="submitGenerateContent">
               {{ activeChapter.content ? '按意见重生成' : '生成正文' }}
             </button>
-            <button class="toolbar__button toolbar__button--ghost" type="button" :disabled="!activeChapter.content" @click="submitCheck">
+            <button class="toolbar__button toolbar__button--ghost" type="button" :disabled="isGeneratingContent || !activeChapter.content" @click="submitCheck">
               创建检查
             </button>
           </div>

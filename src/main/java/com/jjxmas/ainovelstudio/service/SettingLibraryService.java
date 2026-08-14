@@ -9,6 +9,7 @@ import com.jjxmas.ainovelstudio.pojo.dto.OrganizationUpsertRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.SettingLibraryGenerateRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.SettingLibraryResponse;
 import com.jjxmas.ainovelstudio.pojo.dto.SettingLibraryRewriteRequest;
+import com.jjxmas.ainovelstudio.pojo.dto.SettingLibrarySnapshotResponse;
 import com.jjxmas.ainovelstudio.pojo.dto.SettingLibraryUpdateRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.StoryCharacterResponse;
 import com.jjxmas.ainovelstudio.pojo.dto.StoryCharacterUpsertRequest;
@@ -28,6 +29,8 @@ public interface SettingLibraryService {
 
     SettingLibraryResponse getSettingLibrary(Long projectId);
 
+    SettingLibrarySnapshotResponse getSettingLibrarySnapshot(Long projectId);
+
     SettingLibraryResponse updateSettingLibrary(Long projectId, SettingLibraryUpdateRequest request);
 
     SettingLibraryResponse updateSettingLibraryById(Long settingLibraryId, SettingLibraryUpdateRequest request);
@@ -40,65 +43,65 @@ public interface SettingLibraryService {
 
     List<StoryCharacterResponse> listCharacters(Long projectId);
 
-    Long createCharacter(Long projectId, StoryCharacterUpsertRequest request);
+    StoryCharacterResponse createCharacter(Long projectId, StoryCharacterUpsertRequest request);
 
-    void updateCharacter(Long projectId, Long characterId, StoryCharacterUpsertRequest request);
+    StoryCharacterResponse updateCharacter(Long projectId, Long characterId, StoryCharacterUpsertRequest request);
 
     void deleteCharacter(Long projectId, Long characterId);
 
     List<OrganizationResponse> listOrganizations(Long projectId);
 
-    Long createOrganization(Long projectId, OrganizationUpsertRequest request);
+    OrganizationResponse createOrganization(Long projectId, OrganizationUpsertRequest request);
 
-    void updateOrganization(Long projectId, Long organizationId, OrganizationUpsertRequest request);
+    OrganizationResponse updateOrganization(Long projectId, Long organizationId, OrganizationUpsertRequest request);
 
     void deleteOrganization(Long projectId, Long organizationId);
 
     List<StoryLocationResponse> listLocations(Long projectId);
 
-    Long createLocation(Long projectId, StoryLocationUpsertRequest request);
+    StoryLocationResponse createLocation(Long projectId, StoryLocationUpsertRequest request);
 
-    void updateLocation(Long projectId, Long locationId, StoryLocationUpsertRequest request);
+    StoryLocationResponse updateLocation(Long projectId, Long locationId, StoryLocationUpsertRequest request);
 
     void deleteLocation(Long projectId, Long locationId);
 
     List<StoryItemResponse> listItems(Long projectId);
 
-    Long createItem(Long projectId, StoryItemUpsertRequest request);
+    StoryItemResponse createItem(Long projectId, StoryItemUpsertRequest request);
 
-    void updateItem(Long projectId, Long itemId, StoryItemUpsertRequest request);
+    StoryItemResponse updateItem(Long projectId, Long itemId, StoryItemUpsertRequest request);
 
     void deleteItem(Long projectId, Long itemId);
 
     List<WorldRuleResponse> listWorldRules(Long projectId);
 
-    Long createWorldRule(Long projectId, WorldRuleUpsertRequest request);
+    WorldRuleResponse createWorldRule(Long projectId, WorldRuleUpsertRequest request);
 
-    void updateWorldRule(Long projectId, Long ruleId, WorldRuleUpsertRequest request);
+    WorldRuleResponse updateWorldRule(Long projectId, Long ruleId, WorldRuleUpsertRequest request);
 
     void deleteWorldRule(Long projectId, Long ruleId);
 
     List<EntityRelationResponse> listRelations(Long projectId);
 
-    Long createRelation(Long projectId, EntityRelationUpsertRequest request);
+    EntityRelationResponse createRelation(Long projectId, EntityRelationUpsertRequest request);
 
-    void updateRelation(Long projectId, Long relationId, EntityRelationUpsertRequest request);
+    EntityRelationResponse updateRelation(Long projectId, Long relationId, EntityRelationUpsertRequest request);
 
     void deleteRelation(Long projectId, Long relationId);
 
     List<StoryEventResponse> listEvents(Long projectId);
 
-    Long createEvent(Long projectId, StoryEventUpsertRequest request);
+    StoryEventResponse createEvent(Long projectId, StoryEventUpsertRequest request);
 
-    void updateEvent(Long projectId, Long eventId, StoryEventUpsertRequest request);
+    StoryEventResponse updateEvent(Long projectId, Long eventId, StoryEventUpsertRequest request);
 
     void deleteEvent(Long projectId, Long eventId);
 
     List<EntityStateRecordResponse> listStateRecords(Long projectId);
 
-    Long createStateRecord(Long projectId, EntityStateRecordUpsertRequest request);
+    EntityStateRecordResponse createStateRecord(Long projectId, EntityStateRecordUpsertRequest request);
 
-    void updateStateRecord(Long projectId, Long recordId, EntityStateRecordUpsertRequest request);
+    EntityStateRecordResponse updateStateRecord(Long projectId, Long recordId, EntityStateRecordUpsertRequest request);
 
     void deleteStateRecord(Long projectId, Long recordId);
 }

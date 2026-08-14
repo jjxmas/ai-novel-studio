@@ -1,49 +1,44 @@
 package com.jjxmas.ainovelstudio.ai;
 
-import java.util.Map;
-
+import com.jjxmas.ainovelstudio.pojo.dto.ChapterContext;
 import com.jjxmas.ainovelstudio.prompts.IdeaGenerationPrompts;
+import java.util.Map;
+import reactor.core.publisher.Flux;
 import org.springframework.stereotype.Service;
 
 @Service
-/**
- * AI 编排服务，负责把业务任务转换成统一的模型调用命令。
- */
 public class AiOrchestratorService {
 
     private final NovelAiClient novelAiClient;
     private final PromptTemplateService promptTemplateService;
 
-    /**
-     * 注入模型客户端和提示词模板服务。
-     */
     public AiOrchestratorService(NovelAiClient novelAiClient, PromptTemplateService promptTemplateService) {
         this.novelAiClient = novelAiClient;
         this.promptTemplateService = promptTemplateService;
     }
 
-    /**
-     * 生成章节正文。
-     */
-    public AiGenerateResult generateChapter(
-            Long modelConfigId,
-            Map<String, Object> context,
-            String title,
-            String outline,
-            String advice) {
+    public AiGenerateResult generateChapter(Long modelConfigId, ChapterContext context) {
         return novelAiClient.generate(AiGenerateCommand.builder()
                 .modelConfigId(modelConfigId)
                 .taskType(AiTaskType.CHAPTER_GENERATION)
                 .systemPrompt(promptTemplateService.systemPrompt(AiTaskType.CHAPTER_GENERATION))
-                .userPrompt(promptTemplateService.chapterGenerationPrompt(context, title, outline, advice))
+                .userPrompt(promptTemplateService.chapterGenerationPrompt(context))
                 .context(context)
                 .temperature(0.75)
                 .build());
     }
 
-    /**
-     * 生成单个创意候选方案。
-     */
+    public Flux<String> streamChapter(Long modelConfigId, ChapterContext context) {
+        return novelAiClient.stream(AiGenerateCommand.builder()
+                .modelConfigId(modelConfigId)
+                .taskType(AiTaskType.CHAPTER_GENERATION)
+                .systemPrompt(promptTemplateService.systemPrompt(AiTaskType.CHAPTER_GENERATION))
+                .userPrompt(promptTemplateService.chapterGenerationPrompt(context))
+                .context(context)
+                .temperature(0.75)
+                .build());
+    }
+
     public AiGenerateResult generateIdea(Long modelConfigId, Map<String, Object> context) {
         return novelAiClient.generate(AiGenerateCommand.builder()
                 .modelConfigId(modelConfigId)
@@ -88,9 +83,6 @@ public class AiOrchestratorService {
                 .build());
     }
 
-    /**
-     * 大模型评估创意。
-     */
     public AiGenerateResult evaluateIdea(Long modelConfigId, Map<String, Object> context, Map<String, Object> idea) {
         return novelAiClient.generate(AiGenerateCommand.builder()
                 .modelConfigId(modelConfigId)
@@ -102,9 +94,6 @@ public class AiOrchestratorService {
                 .build());
     }
 
-    /**
-     * 根据修改指令重写创意。
-     */
     public AiGenerateResult rewriteIdea(Long modelConfigId, String original, String instruction) {
         return novelAiClient.generate(AiGenerateCommand.builder()
                 .modelConfigId(modelConfigId)
@@ -115,27 +104,28 @@ public class AiOrchestratorService {
                 .build());
     }
 
-    /**
-     * 根据上下文和修改指令重写章节正文。
-     */
-    public AiGenerateResult rewriteChapter(
-            Long modelConfigId,
-            Map<String, Object> context,
-            String content,
-            String instruction) {
+    public AiGenerateResult rewriteChapter(Long modelConfigId, ChapterContext context, String content) {
         return novelAiClient.generate(AiGenerateCommand.builder()
                 .modelConfigId(modelConfigId)
                 .taskType(AiTaskType.REWRITE)
                 .systemPrompt(promptTemplateService.systemPrompt(AiTaskType.REWRITE))
-                .userPrompt(promptTemplateService.rewritePrompt(context, content, instruction))
+                .userPrompt(promptTemplateService.rewritePrompt(context, content))
                 .context(context)
                 .temperature(0.7)
                 .build());
     }
 
-    /**
-     * 为章节正文生成单章摘要。
-     */
+    public Flux<String> streamRewriteChapter(Long modelConfigId, ChapterContext context, String content) {
+        return novelAiClient.stream(AiGenerateCommand.builder()
+                .modelConfigId(modelConfigId)
+                .taskType(AiTaskType.REWRITE)
+                .systemPrompt(promptTemplateService.systemPrompt(AiTaskType.REWRITE))
+                .userPrompt(promptTemplateService.rewritePrompt(context, content))
+                .context(context)
+                .temperature(0.7)
+                .build());
+    }
+
     public AiGenerateResult summarizeChapter(Long modelConfigId, String title, String content) {
         return novelAiClient.generate(AiGenerateCommand.builder()
                 .modelConfigId(modelConfigId)
@@ -146,9 +136,16 @@ public class AiOrchestratorService {
                 .build());
     }
 
-    /**
-     * 将多条摘要压缩为分层记忆。
-     */
+    public AiGenerateResult extractChapterFacts(Long modelConfigId, String title, String content) {
+        return novelAiClient.generate(AiGenerateCommand.builder()
+                .modelConfigId(modelConfigId)
+                .taskType(AiTaskType.CHAPTER_FACT_EXTRACTION)
+                .systemPrompt(promptTemplateService.systemPrompt(AiTaskType.CHAPTER_FACT_EXTRACTION))
+                .userPrompt(promptTemplateService.chapterFactExtractionPrompt(title, content))
+                .temperature(0.2)
+                .build());
+    }
+
     public AiGenerateResult compressMemory(Long modelConfigId, String sourceType, String content) {
         return novelAiClient.generate(AiGenerateCommand.builder()
                 .modelConfigId(modelConfigId)
@@ -159,9 +156,6 @@ public class AiOrchestratorService {
                 .build());
     }
 
-    /**
-     * 用新增阶段记忆更新全局记忆。
-     */
     public AiGenerateResult updateGlobalMemory(Long modelConfigId, String oldGlobal, String newMemory) {
         return novelAiClient.generate(AiGenerateCommand.builder()
                 .modelConfigId(modelConfigId)

@@ -1,4 +1,4 @@
-import { del, patch, post, request } from './client';
+import { del, patch, post, request, streamRequest } from './client';
 import type {
   Chapter,
   ChapterSummary,
@@ -22,6 +22,7 @@ import type {
   ProjectMemory,
   ProjectUpdateRequest,
   SettingLibrary,
+  SettingLibrarySnapshot,
   SettingWorkflow,
   StoryCharacter,
   StoryCharacterRequest,
@@ -64,7 +65,7 @@ function mapProject(data: any): Project {
     targetWordCountMin: data.targetWordCountMin ?? 0,
     targetWordCountMax: data.targetWordCountMax ?? 0,
     targetChapterWordCount: data.targetChapterWordCount ?? 3000,
-    platformTarget: data.platformTarget ?? '通用',
+    platformTarget: data.platformTarget ?? 'general',
     stylePreference: data.stylePreference ?? '',
     stage: data.stage ?? mapStage(data.status),
     updatedAt: data.updatedAt ?? data.createdAt ?? nowText(),
@@ -78,10 +79,10 @@ function mapIdea(data: any, projectId?: number): Idea {
     id: data.id,
     projectId: data.projectId ?? projectId ?? 0,
     title: data.title,
-    sellingPoint: data.sellingPoint ?? sellingPoints.join('、') ?? '',
+    sellingPoint: data.sellingPoint ?? sellingPoints.join(', ') ?? '',
     worldview: data.worldview ?? '',
     mainConflict: data.mainConflict ?? '',
-    estimatedWords: data.estimatedWords ?? `${data.estimatedWordCount ?? 0}字`,
+    estimatedWords: data.estimatedWords ?? `${data.estimatedWordCount ?? 0} words`,
     score: longFormPotentialScore ?? 0,
     selected: data.selected ?? data.status === 'selected',
     content: data.content ?? data.summary ?? '',
@@ -329,6 +330,22 @@ function mapChapter(data: any, projectId?: number): Chapter {
   };
 }
 
+interface ChapterStreamEvent {
+  type: 'queued' | 'started' | 'chunk' | 'post_processing' | 'done' | 'error';
+  content?: string;
+  chapter?: Chapter;
+  message?: string;
+}
+
+function mapChapterStreamEvent(event: any, projectId?: number): ChapterStreamEvent {
+  return {
+    type: event.type,
+    content: event.content ?? '',
+    chapter: event.chapter ? mapChapter(event.chapter, projectId) : undefined,
+    message: event.message ?? '',
+  };
+}
+
 function mapChapterSummary(data: any): ChapterSummary {
   return {
     id: data.id,
@@ -374,6 +391,20 @@ function mapExport(data: any, projectId: number, format: ExportRecord['format'],
   };
 }
 
+function mapSettingLibrarySnapshot(data: any, projectId: number): SettingLibrarySnapshot {
+  return {
+    settingLibrary: mapSettingLibrary(data.settingLibrary),
+    characters: (data.characters ?? []).map((item: any) => mapCharacter(item, projectId)),
+    organizations: (data.organizations ?? []).map((item: any) => mapOrganization(item, projectId)),
+    locations: (data.locations ?? []).map((item: any) => mapLocation(item, projectId)),
+    items: (data.items ?? []).map((item: any) => mapItem(item, projectId)),
+    worldRules: (data.worldRules ?? []).map((item: any) => mapWorldRule(item, projectId)),
+    relations: (data.relations ?? []).map((item: any) => mapRelation(item, projectId)),
+    events: (data.events ?? []).map((item: any) => mapEvent(item, projectId)),
+    stateRecords: (data.stateRecords ?? []).map((item: any) => mapStateRecord(item, projectId)),
+  };
+}
+
 export const novelApi = {
   listProjects: async () => (await request<any[]>('/projects')).map(mapProject),
   createProject: (payload: ProjectCreateRequest) => post<number>('/projects', payload),
@@ -391,8 +422,8 @@ export const novelApi = {
   generateIdeas: (projectId: number, suggestion?: string, ideaCount = 3) => {
     const payload: IdeaGenerateRequest = {
       projectId,
-      modelType: '创意生成',
-      briefDescription: suggestion || '根据作品简介生成适合长篇连载的创意方案',
+      modelType: '\u521b\u610f\u751f\u6210',
+      briefDescription: suggestion || 'Generate long-form serialized novel ideas from the project brief.',
       ideaCount,
     };
     return post<any[]>(`/projects/${projectId}/ideas/generate`, payload)
@@ -400,7 +431,7 @@ export const novelApi = {
   },
   listIdeas: (projectId: number) =>
     request<any[]>(`/projects/${projectId}/ideas`).then((items) => items.map((item) => mapIdea(item, projectId))),
-  updateIdea: (idea: Idea, changeNote = '用户直接修改创意内容') =>
+  updateIdea: (idea: Idea, changeNote = 'User edited idea content') =>
     patch<void>(`/ideas/${idea.id}`, {
       title: idea.title,
       sellingPoints: [idea.sellingPoint],
@@ -419,6 +450,9 @@ export const novelApi = {
     post<any>(`/projects/${projectId}/setting-library/generate`, { projectId }).then(mapSettingLibrary),
   getSettingLibrary: (projectId: number) =>
     request<any>(`/projects/${projectId}/setting-library`).then(mapSettingLibrary),
+  getSettingLibrarySnapshot: (projectId: number) =>
+    request<any>(`/projects/${projectId}/setting-library/snapshot`)
+      .then((item) => mapSettingLibrarySnapshot(item, projectId)),
   updateSettingLibrary: (id: number, overview: string) =>
     patch<any>(`/setting-library/${id}`, { summary: overview, overview }).then(mapSettingLibrary),
   confirmSettingLibrary: (id: number) =>
@@ -438,72 +472,72 @@ export const novelApi = {
   listCharacters: (projectId: number) =>
     request<any[]>(`/projects/${projectId}/characters`).then((items) => items.map((item) => mapCharacter(item, projectId))),
   createCharacter: (projectId: number, payload: StoryCharacterRequest) =>
-    post<number>(`/projects/${projectId}/characters`, payload),
+    post<any>(`/projects/${projectId}/characters`, payload).then((item) => mapCharacter(item, projectId)),
   updateCharacter: (projectId: number, characterId: number, payload: StoryCharacterRequest) =>
-    patch<void>(`/projects/${projectId}/characters/${characterId}`, payload),
+    patch<any>(`/projects/${projectId}/characters/${characterId}`, payload).then((item) => mapCharacter(item, projectId)),
   deleteCharacter: (projectId: number, characterId: number) =>
     del<void>(`/projects/${projectId}/characters/${characterId}`),
 
   listOrganizations: (projectId: number) =>
     request<any[]>(`/projects/${projectId}/organizations`).then((items) => items.map((item) => mapOrganization(item, projectId))),
   createOrganization: (projectId: number, payload: OrganizationRequest) =>
-    post<number>(`/projects/${projectId}/organizations`, payload),
+    post<any>(`/projects/${projectId}/organizations`, payload).then((item) => mapOrganization(item, projectId)),
   updateOrganization: (projectId: number, organizationId: number, payload: OrganizationRequest) =>
-    patch<void>(`/projects/${projectId}/organizations/${organizationId}`, payload),
+    patch<any>(`/projects/${projectId}/organizations/${organizationId}`, payload).then((item) => mapOrganization(item, projectId)),
   deleteOrganization: (projectId: number, organizationId: number) =>
     del<void>(`/projects/${projectId}/organizations/${organizationId}`),
 
   listLocations: (projectId: number) =>
     request<any[]>(`/projects/${projectId}/locations`).then((items) => items.map((item) => mapLocation(item, projectId))),
   createLocation: (projectId: number, payload: StoryLocationRequest) =>
-    post<number>(`/projects/${projectId}/locations`, payload),
+    post<any>(`/projects/${projectId}/locations`, payload).then((item) => mapLocation(item, projectId)),
   updateLocation: (projectId: number, locationId: number, payload: StoryLocationRequest) =>
-    patch<void>(`/projects/${projectId}/locations/${locationId}`, payload),
+    patch<any>(`/projects/${projectId}/locations/${locationId}`, payload).then((item) => mapLocation(item, projectId)),
   deleteLocation: (projectId: number, locationId: number) =>
     del<void>(`/projects/${projectId}/locations/${locationId}`),
 
   listItems: (projectId: number) =>
     request<any[]>(`/projects/${projectId}/items`).then((items) => items.map((item) => mapItem(item, projectId))),
   createItem: (projectId: number, payload: StoryItemRequest) =>
-    post<number>(`/projects/${projectId}/items`, payload),
+    post<any>(`/projects/${projectId}/items`, payload).then((item) => mapItem(item, projectId)),
   updateItem: (projectId: number, itemId: number, payload: StoryItemRequest) =>
-    patch<void>(`/projects/${projectId}/items/${itemId}`, payload),
+    patch<any>(`/projects/${projectId}/items/${itemId}`, payload).then((item) => mapItem(item, projectId)),
   deleteItem: (projectId: number, itemId: number) =>
     del<void>(`/projects/${projectId}/items/${itemId}`),
 
   listWorldRules: (projectId: number) =>
     request<any[]>(`/projects/${projectId}/world-rules`).then((items) => items.map((item) => mapWorldRule(item, projectId))),
   createWorldRule: (projectId: number, payload: WorldRuleRequest) =>
-    post<number>(`/projects/${projectId}/world-rules`, payload),
+    post<any>(`/projects/${projectId}/world-rules`, payload).then((item) => mapWorldRule(item, projectId)),
   updateWorldRule: (projectId: number, ruleId: number, payload: WorldRuleRequest) =>
-    patch<void>(`/projects/${projectId}/world-rules/${ruleId}`, payload),
+    patch<any>(`/projects/${projectId}/world-rules/${ruleId}`, payload).then((item) => mapWorldRule(item, projectId)),
   deleteWorldRule: (projectId: number, ruleId: number) =>
     del<void>(`/projects/${projectId}/world-rules/${ruleId}`),
 
   listRelations: (projectId: number) =>
     request<any[]>(`/projects/${projectId}/relations`).then((items) => items.map((item) => mapRelation(item, projectId))),
   createRelation: (projectId: number, payload: EntityRelationRequest) =>
-    post<number>(`/projects/${projectId}/relations`, payload),
+    post<any>(`/projects/${projectId}/relations`, payload).then((item) => mapRelation(item, projectId)),
   updateRelation: (projectId: number, relationId: number, payload: EntityRelationRequest) =>
-    patch<void>(`/projects/${projectId}/relations/${relationId}`, payload),
+    patch<any>(`/projects/${projectId}/relations/${relationId}`, payload).then((item) => mapRelation(item, projectId)),
   deleteRelation: (projectId: number, relationId: number) =>
     del<void>(`/projects/${projectId}/relations/${relationId}`),
 
   listEvents: (projectId: number) =>
     request<any[]>(`/projects/${projectId}/events`).then((items) => items.map((item) => mapEvent(item, projectId))),
   createEvent: (projectId: number, payload: StoryEventRequest) =>
-    post<number>(`/projects/${projectId}/events`, payload),
+    post<any>(`/projects/${projectId}/events`, payload).then((item) => mapEvent(item, projectId)),
   updateEvent: (projectId: number, eventId: number, payload: StoryEventRequest) =>
-    patch<void>(`/projects/${projectId}/events/${eventId}`, payload),
+    patch<any>(`/projects/${projectId}/events/${eventId}`, payload).then((item) => mapEvent(item, projectId)),
   deleteEvent: (projectId: number, eventId: number) =>
     del<void>(`/projects/${projectId}/events/${eventId}`),
 
   listStateRecords: (projectId: number) =>
     request<any[]>(`/projects/${projectId}/state-records`).then((items) => items.map((item) => mapStateRecord(item, projectId))),
   createStateRecord: (projectId: number, payload: EntityStateRecordRequest) =>
-    post<number>(`/projects/${projectId}/state-records`, payload),
+    post<any>(`/projects/${projectId}/state-records`, payload).then((item) => mapStateRecord(item, projectId)),
   updateStateRecord: (projectId: number, recordId: number, payload: EntityStateRecordRequest) =>
-    patch<void>(`/projects/${projectId}/state-records/${recordId}`, payload),
+    patch<any>(`/projects/${projectId}/state-records/${recordId}`, payload).then((item) => mapStateRecord(item, projectId)),
   deleteStateRecord: (projectId: number, recordId: number) =>
     del<void>(`/projects/${projectId}/state-records/${recordId}`),
 
@@ -515,11 +549,11 @@ export const novelApi = {
   getGlobalOutline: (projectId: number) =>
     request<any>(`/projects/${projectId}/global-outline`).then(mapGlobalOutline),
   updateGlobalOutline: (id: number, content: string) =>
-    patch<any>(`/global-outlines/${id}`, { title: '全局大纲', content }).then(mapGlobalOutline),
+    patch<any>(`/global-outlines/${id}`, { title: 'Global outline', content }).then(mapGlobalOutline),
   confirmGlobalOutline: (id: number) =>
     post<void>(`/global-outlines/${id}/confirm`),
   saveGlobalOutline: (id: number, content: string) =>
-    patch<void>(`/global-outlines/${id}`, { title: '鍏ㄥ眬澶х翰', content }),
+    patch<void>(`/global-outlines/${id}`, { title: 'Global outline', content }),
   startOutlineWorkflow: (projectId: number) =>
     post<any>(`/projects/${projectId}/outline-workflows`, { projectId }).then(mapOutlineWorkflow),
   getLatestOutlineWorkflow: (projectId: number) =>
@@ -536,12 +570,37 @@ export const novelApi = {
       projectId: chapter.projectId,
       revisionAdvice: suggestion,
     }).then((item) => mapChapter(item, chapter.projectId)),
+  streamGenerateChapterContent: (
+    chapter: Chapter,
+    suggestion: string | undefined,
+    onEvent: (event: ChapterStreamEvent) => void,
+  ) =>
+    streamRequest<any>(
+      `/chapters/${chapter.id}/generate-content/stream`,
+      {
+        projectId: chapter.projectId,
+        revisionAdvice: suggestion,
+      },
+      (event) => onEvent(mapChapterStreamEvent(event, chapter.projectId)),
+    ),
   updateChapter: (chapterId: number, content: string) =>
-    patch<void>(`/chapters/${chapterId}`, { content }),
+    patch<any>(`/chapters/${chapterId}`, { content }).then((item) => mapChapter(item)),
   rewriteChapterContent: (chapterId: number, suggestion: string) =>
     post<any>(`/chapters/${chapterId}/rewrite-content`, {
-      instruction: suggestion || '保持章节目标和关键设定一致，重写得更具体、更有动作和对白。',
+      instruction: suggestion || 'Rewrite the chapter with clearer action, conflict, and dialogue.',
     }).then((item) => mapChapter(item)),
+  streamRewriteChapterContent: (
+    chapterId: number,
+    suggestion: string,
+    onEvent: (event: ChapterStreamEvent) => void,
+  ) =>
+    streamRequest<any>(
+      `/chapters/${chapterId}/rewrite-content/stream`,
+      {
+        instruction: suggestion || 'Rewrite the chapter with clearer action, conflict, and dialogue.',
+      },
+      (event) => onEvent(mapChapterStreamEvent(event)),
+    ),
   getProjectMemory: (projectId: number) =>
     request<any>(`/projects/${projectId}/memories`).then(mapProjectMemory),
 
@@ -551,13 +610,19 @@ export const novelApi = {
         id: index + 1,
         projectId,
         type: issue.type,
-        severity: issue.severity === 'critical' ? '高' : issue.severity === 'info' ? '低' : '中',
+        severity: issue.severity === 'critical' ? '\u9ad8' : issue.severity === 'info' ? '\u4f4e' : '\u4e2d',
         summary: issue.description,
         suggestion: issue.suggestion,
       })),
     ),
   createExport: (projectId: number, format: ExportRecord['format'], scope: string) =>
-    post<any>('/exports', { projectId, format, scope }).then((item) => mapExport(item, projectId, format, scope)),
+    post<any>('/exports', { projectId, format, scope }).then((item) => ({
+      projectId: item.projectId ?? projectId,
+      format: item.format ?? format,
+      scope: item.scope ?? scope,
+      fileName: item.fileName,
+      content: item.content ?? '',
+    })),
   listVersions: (projectId: number) =>
     request<any[]>(`/versions?projectId=${projectId}`).then((items) =>
       items.map((item): ContentVersion => ({

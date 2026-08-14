@@ -8,8 +8,6 @@ import lombok.EqualsAndHashCode;
 import lombok.experimental.Accessors;
 
 /**
- * 全局大纲实体占位。分卷、剧情单元、章节大纲后续分别接入独立表" */
-/**
  * 大纲实体，保存项目全局大纲内容、标题和确认状态。
  */
 @Data

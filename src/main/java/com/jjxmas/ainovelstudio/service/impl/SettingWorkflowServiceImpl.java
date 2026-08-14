@@ -170,7 +170,7 @@ public class SettingWorkflowServiceImpl implements SettingWorkflowService {
     @Transactional
     public SettingWorkflowResponse regenerateModule(Long workflowId, String moduleKey) {
         SettingWorkflowRun run = requireRun(workflowId);
-        if (!List.of("draft_ready", "check_failed", "committed").contains(run.getStatus())) {
+        if (!List.of("draft_ready", "check_failed").contains(run.getStatus())) {
             throw new BusinessException(ErrorCode.WORKFLOW_GATE_NOT_MET, "生成草案后才能重生成模块");
         }
         String normalizedModuleKey = normalizeModuleKey(moduleKey);
@@ -204,7 +204,10 @@ public class SettingWorkflowServiceImpl implements SettingWorkflowService {
     @Override
     @Transactional
     public SettingLibraryResponse commitWorkflow(Long workflowId) {
-        SettingWorkflowRun run = requireRun(workflowId);
+        SettingWorkflowRun run = requireRunForUpdate(workflowId);
+        if ("committed".equals(run.getStatus())) {
+            return settingLibraryService.getSettingLibrary(run.getProjectId());
+        }
         if (!"draft_ready".equals(run.getStatus())) {
             throw new BusinessException(ErrorCode.WORKFLOW_GATE_NOT_MET, "设定草案通过检查后才能提交");
         }
@@ -498,6 +501,16 @@ public class SettingWorkflowServiceImpl implements SettingWorkflowService {
         SettingWorkflowRun run = settingWorkflowRunMapper.selectById(workflowId);
         if (run == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "设定生成工作流不存在");
+        }
+        return run;
+    }
+
+    private SettingWorkflowRun requireRunForUpdate(Long workflowId) {
+        SettingWorkflowRun run = settingWorkflowRunMapper.selectOne(new LambdaQueryWrapper<SettingWorkflowRun>()
+                .eq(SettingWorkflowRun::getId, workflowId)
+                .last("FOR UPDATE"));
+        if (run == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "璁惧畾鐢熸垚宸ヤ綔娴佷笉瀛樺湪");
         }
         return run;
     }

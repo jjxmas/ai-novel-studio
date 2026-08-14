@@ -3,13 +3,13 @@ package com.jjxmas.ainovelstudio.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.jjxmas.ainovelstudio.common.exception.BusinessException;
 import com.jjxmas.ainovelstudio.common.exception.ErrorCode;
-import com.jjxmas.ainovelstudio.pojo.entity.Chapter;
 import com.jjxmas.ainovelstudio.mapper.ChapterMapper;
+import com.jjxmas.ainovelstudio.mapper.ProjectMapper;
 import com.jjxmas.ainovelstudio.pojo.dto.ExportRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.ExportResponse;
-import com.jjxmas.ainovelstudio.service.ExportService;
+import com.jjxmas.ainovelstudio.pojo.entity.Chapter;
 import com.jjxmas.ainovelstudio.pojo.entity.Project;
-import com.jjxmas.ainovelstudio.mapper.ProjectMapper;
+import com.jjxmas.ainovelstudio.service.ExportService;
 import com.jjxmas.ainovelstudio.service.VersionService;
 import java.util.List;
 import java.util.Map;
@@ -17,101 +17,121 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
-/**
- * 导出服务实现，负责校验导出条件、组装导出文本并记录版本快照。
- */
 public class ExportServiceImpl implements ExportService {
 
     private final ProjectMapper projectMapper;
     private final ChapterMapper chapterMapper;
     private final VersionService versionService;
 
-    /**
-     * 注入导出所需的项目、章节和版本服务。
-     */
     public ExportServiceImpl(ProjectMapper projectMapper, ChapterMapper chapterMapper, VersionService versionService) {
         this.projectMapper = projectMapper;
         this.chapterMapper = chapterMapper;
         this.versionService = versionService;
     }
 
-    /**
-     * 导出项目章节内容为 Markdown 或 TXT。
-     */
     @Override
     @Transactional
     public ExportResponse exportProject(ExportRequest request) {
         Project project = projectMapper.selectById(request.getProjectId());
         if (project == null) {
-            throw new BusinessException(ErrorCode.NOT_FOUND, "作品不存在");
+            throw new BusinessException(ErrorCode.NOT_FOUND, "PROJECT_NOT_FOUND");
         }
-        String format = request.getFormat().toLowerCase();
-        if (!"markdown".equals(format) && !"md".equals(format) && !"txt".equals(format)) {
-            throw new BusinessException(ErrorCode.EXPORT_FAILED, "第二版只支持 Markdown/TXT 导出");
-        }
-
-        List<Chapter> chapters = chapterMapper.selectList(new LambdaQueryWrapper<Chapter>()
-                .eq(Chapter::getProjectId, request.getProjectId())
-                .orderByAsc(Chapter::getChapterNo));
-        List<Chapter> exportableChapters = chapters.stream()
-                .filter(chapter -> chapter.getContent() != null && !chapter.getContent().isBlank())
-                .toList();
-        if (exportableChapters.isEmpty()) {
-            throw new BusinessException(ErrorCode.WORKFLOW_GATE_NOT_MET, "请先生成章节正文，再导出作品");
-        }
-        if (exportableChapters.stream().noneMatch(chapter -> chapter.getCheckedAt() != null)) {
-            throw new BusinessException(ErrorCode.WORKFLOW_GATE_NOT_MET, "请先完成至少一次章节检查，再导出作品");
+        String extension = normalizeFormat(request.getFormat());
+        List<Chapter> chapters = exportableChapters(request);
+        if (chapters.isEmpty()) {
+            throw new BusinessException(ErrorCode.WORKFLOW_GATE_NOT_MET, "NO_EXPORTABLE_CHAPTERS");
         }
 
-        boolean markdown = "markdown".equals(format) || "md".equals(format);
-        String content = markdown ? buildMarkdown(project, exportableChapters) : buildTxt(project, exportableChapters);
-        String extension = markdown ? "md" : "txt";
-        String fileName = project.getTitle() + "." + extension;
+        String content = "md".equals(extension) ? buildMarkdown(project, chapters) : buildTxt(project, chapters);
+        String fileName = sanitizeFileName(project.getTitle()) + "." + extension;
+
         project.setStatus("exported");
         projectMapper.updateById(project);
         versionService.recordVersion(
                 project.getId(),
                 "export",
                 project.getId(),
-                Map.of("fileName", fileName, "format", extension, "scope", request.getScope(), "content", content),
+                Map.of("fileName", fileName, "format", extension, "scope", normalizeScope(request.getScope()), "content", content),
                 "export",
-                "导出 " + extension.toUpperCase() + " 内容快照",
+                "Export " + extension.toUpperCase() + " content snapshot",
                 null,
                 null);
+
         return ExportResponse.builder()
                 .fileName(fileName)
-                .filePath("/exports/" + project.getId() + "/" + fileName)
+                .filePath("/exports/download")
                 .format(extension)
-                .scope(request.getScope())
+                .scope(normalizeScope(request.getScope()))
                 .content(content)
                 .build();
     }
 
-    /**
-     * 将项目和章节内容拼接为 Markdown 文本。
-     */
+    private List<Chapter> exportableChapters(ExportRequest request) {
+        return chapterMapper.selectList(new LambdaQueryWrapper<Chapter>()
+                .eq(Chapter::getProjectId, request.getProjectId())
+                .isNotNull(Chapter::getContent)
+                .ne(Chapter::getContent, "")
+                .orderByAsc(Chapter::getChapterNo));
+    }
+
+    private String normalizeFormat(String format) {
+        String value = format == null ? "" : format.trim().toLowerCase();
+        if ("markdown".equals(value) || "md".equals(value)) {
+            return "md";
+        }
+        if ("txt".equals(value)) {
+            return "txt";
+        }
+        throw new BusinessException(ErrorCode.EXPORT_FAILED, "UNSUPPORTED_EXPORT_FORMAT");
+    }
+
+    private String normalizeScope(String scope) {
+        String value = scope == null ? "" : scope.trim().toLowerCase();
+        return switch (value) {
+            case "chapter" -> "chapter";
+            case "volume" -> "volume";
+            default -> "full_project";
+        };
+    }
+
     private String buildMarkdown(Project project, List<Chapter> chapters) {
-        StringBuilder builder = new StringBuilder("# ").append(project.getTitle()).append("\n\n");
+        StringBuilder builder = new StringBuilder("# ").append(blankToTitle(project.getTitle())).append("\n\n");
         for (Chapter chapter : chapters) {
-            builder.append("## 第").append(chapter.getChapterNo()).append("章 ")
-                    .append(chapter.getTitle()).append("\n\n")
-                    .append(chapter.getContent() == null ? chapter.getOutline() : chapter.getContent())
+            builder.append("## Chapter ")
+                    .append(chapter.getChapterNo() == null ? "" : chapter.getChapterNo())
+                    .append(" ")
+                    .append(blankToEmpty(chapter.getTitle()))
+                    .append("\n\n")
+                    .append(blankToEmpty(chapter.getContent()))
                     .append("\n\n");
         }
         return builder.toString();
     }
 
-    /**
-     * 将项目和章节内容拼接为纯文本。
-     */
     private String buildTxt(Project project, List<Chapter> chapters) {
-        StringBuilder builder = new StringBuilder(project.getTitle()).append("\n\n");
+        StringBuilder builder = new StringBuilder(blankToTitle(project.getTitle())).append("\n\n");
         for (Chapter chapter : chapters) {
-            builder.append("第").append(chapter.getChapterNo()).append("章 ")
-                    .append(chapter.getTitle()).append("\n\n")
-                    .append(chapter.getContent() == null ? chapter.getOutline() : chapter.getContent())
+            builder.append("Chapter ")
+                    .append(chapter.getChapterNo() == null ? "" : chapter.getChapterNo())
+                    .append(" ")
+                    .append(blankToEmpty(chapter.getTitle()))
+                    .append("\n\n")
+                    .append(blankToEmpty(chapter.getContent()))
                     .append("\n\n");
         }
         return builder.toString();
+    }
+
+    private String sanitizeFileName(String value) {
+        String title = blankToTitle(value).replaceAll("[\\\\/:*?\"<>|]", "_").trim();
+        return title.isBlank() ? "novel" : title;
+    }
+
+    private String blankToTitle(String value) {
+        return value == null || value.isBlank() ? "novel" : value;
+    }
+
+    private String blankToEmpty(String value) {
+        return value == null ? "" : value;
     }
 }

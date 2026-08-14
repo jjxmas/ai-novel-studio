@@ -36,6 +36,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -54,6 +56,7 @@ public class OutlineWorkflowServiceImpl implements OutlineWorkflowService {
     private final AiOrchestratorService aiOrchestratorService;
     private final OutlineConverter outlineConverter;
     private final OutlineWorkflowConverter outlineWorkflowConverter;
+    private final CacheManager cacheManager;
 
     public OutlineWorkflowServiceImpl(
             OutlineWorkflowRunMapper outlineWorkflowRunMapper,
@@ -67,7 +70,8 @@ public class OutlineWorkflowServiceImpl implements OutlineWorkflowService {
             VersionService versionService,
             AiOrchestratorService aiOrchestratorService,
             OutlineConverter outlineConverter,
-            OutlineWorkflowConverter outlineWorkflowConverter) {
+            OutlineWorkflowConverter outlineWorkflowConverter,
+            CacheManager cacheManager) {
         this.outlineWorkflowRunMapper = outlineWorkflowRunMapper;
         this.projectMapper = projectMapper;
         this.settingLibraryMapper = settingLibraryMapper;
@@ -80,6 +84,7 @@ public class OutlineWorkflowServiceImpl implements OutlineWorkflowService {
         this.aiOrchestratorService = aiOrchestratorService;
         this.outlineConverter = outlineConverter;
         this.outlineWorkflowConverter = outlineWorkflowConverter;
+        this.cacheManager = cacheManager;
     }
 
     @Override
@@ -126,7 +131,16 @@ public class OutlineWorkflowServiceImpl implements OutlineWorkflowService {
     @Override
     @Transactional
     public OutlineResponse commitWorkflow(Long workflowId) {
-        OutlineWorkflowRun run = requireRun(workflowId);
+        OutlineWorkflowRun run = requireRunForUpdate(workflowId);
+        if ("committed".equals(run.getStatus())) {
+            Outline outline = outlineMapper.selectOne(new LambdaQueryWrapper<Outline>()
+                    .eq(Outline::getProjectId, run.getProjectId())
+                    .last("LIMIT 1"));
+            if (outline == null) {
+                throw new BusinessException(ErrorCode.NOT_FOUND, "outline not found");
+            }
+            return toOutlineResponse(outline);
+        }
         if (!"draft_ready".equals(run.getStatus())) {
             throw new BusinessException(ErrorCode.WORKFLOW_GATE_NOT_MET, "大纲草案通过检查后才能提交");
         }
@@ -215,7 +229,17 @@ public class OutlineWorkflowServiceImpl implements OutlineWorkflowService {
         projectMapper.updateById(project);
         run.setStatus("committed").setCommittedAt(LocalDateTime.now());
         outlineWorkflowRunMapper.updateById(run);
+        evictCommittedContextCaches(projectId);
         return toOutlineResponse(outline);
+    }
+
+    private void evictCommittedContextCaches(Long projectId) {
+        for (String cacheName : List.of("globalOutlines", "chapterContextOutlines", "projects", "chapterContextProfiles")) {
+            Cache cache = cacheManager.getCache(cacheName);
+            if (cache != null) {
+                cache.evict(projectId);
+            }
+        }
     }
 
     private Map<String, Object> outlineContext(Project project, SettingLibrary setting) {
@@ -302,6 +326,16 @@ public class OutlineWorkflowServiceImpl implements OutlineWorkflowService {
         OutlineWorkflowRun run = outlineWorkflowRunMapper.selectById(workflowId);
         if (run == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "大纲生成工作流不存在");
+        }
+        return run;
+    }
+
+    private OutlineWorkflowRun requireRunForUpdate(Long workflowId) {
+        OutlineWorkflowRun run = outlineWorkflowRunMapper.selectOne(new LambdaQueryWrapper<OutlineWorkflowRun>()
+                .eq(OutlineWorkflowRun::getId, workflowId)
+                .last("FOR UPDATE"));
+        if (run == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "outline workflow run not found");
         }
         return run;
     }

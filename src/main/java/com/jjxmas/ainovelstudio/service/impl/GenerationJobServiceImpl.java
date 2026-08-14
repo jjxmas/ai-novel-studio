@@ -36,20 +36,48 @@ public class GenerationJobServiceImpl implements GenerationJobService {
             Map<String, Object> input,
             Map<String, Object> output) {
         LocalDateTime now = LocalDateTime.now();
-        GenerationJob job = new GenerationJob()
+        GenerationJob job = baseJob(projectId, jobType, relatedEntityType, relatedEntityId, modelConfigId, input, now)
+                .setStatus("finished")
+                .setOutputSnapshot(JsonUtils.toJson(output));
+        generationJobMapper.insert(job);
+        return job.getId();
+    }
+
+    @Override
+    public Long recordFailedJob(
+            Long projectId,
+            String jobType,
+            String relatedEntityType,
+            Long relatedEntityId,
+            Long modelConfigId,
+            Map<String, Object> input,
+            String errorMessage) {
+        LocalDateTime now = LocalDateTime.now();
+        GenerationJob job = baseJob(projectId, jobType, relatedEntityType, relatedEntityId, modelConfigId, input, now)
+                .setStatus("failed")
+                .setErrorMessage(errorMessage == null ? "" : errorMessage);
+        generationJobMapper.insert(job);
+        return job.getId();
+    }
+
+    private GenerationJob baseJob(
+            Long projectId,
+            String jobType,
+            String relatedEntityType,
+            Long relatedEntityId,
+            Long modelConfigId,
+            Map<String, Object> input,
+            LocalDateTime now) {
+        return new GenerationJob()
                 .setProjectId(projectId)
                 .setJobType(jobType)
                 .setRelatedEntityType(relatedEntityType)
                 .setRelatedEntityId(relatedEntityId)
                 .setModelConfigId(modelConfigId)
-                .setStatus("finished")
                 .setPriority(0)
                 .setAttemptCount(1)
                 .setInputSnapshot(JsonUtils.toJson(input))
-                .setOutputSnapshot(JsonUtils.toJson(output))
                 .setStartedAt(now)
                 .setFinishedAt(now);
-        generationJobMapper.insert(job);
-        return job.getId();
     }
 }

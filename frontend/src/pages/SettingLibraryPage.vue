@@ -38,16 +38,8 @@ const {
   activeProject,
   canGenerateSetting,
   loadIdeas,
-  loadSettingLibrary,
   loadLatestSettingWorkflow,
-  loadCharacters,
-  loadOrganizations,
-  loadLocations,
-  loadItems,
-  loadWorldRules,
-  loadRelations,
-  loadEvents,
-  loadStateRecords,
+  loadSettingSnapshot,
   generateSettingLibrary,
   startSettingWorkflow,
   approveSettingWorkflowBlueprint,
@@ -388,16 +380,8 @@ watch(selectedStateRecord, (value) => {
 
 onMounted(() => {
   void loadIdeas().catch(() => undefined);
-  void loadSettingLibrary().catch(() => undefined);
   void loadLatestSettingWorkflow().catch(() => undefined);
-  void loadCharacters().catch(() => undefined);
-  void loadOrganizations().catch(() => undefined);
-  void loadLocations().catch(() => undefined);
-  void loadItems().catch(() => undefined);
-  void loadWorldRules().catch(() => undefined);
-  void loadRelations().catch(() => undefined);
-  void loadEvents().catch(() => undefined);
-  void loadStateRecords().catch(() => undefined);
+  void loadSettingSnapshot().catch(() => undefined);
 });
 
 async function withWorkflow(action: () => Promise<unknown>) {

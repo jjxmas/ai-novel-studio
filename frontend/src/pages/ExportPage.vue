@@ -8,16 +8,20 @@ const exportFormats = [
   { label: 'Markdown', value: 'markdown' as const },
   { label: 'TXT', value: 'txt' as const },
 ];
-const exportScopes = ['全书', '某一卷', '指定章节'];
+const exportScopes = [
+  { label: '全书', value: 'full_project' },
+  { label: '某一卷', value: 'volume' },
+  { label: '指定章节', value: 'chapter' },
+];
 const { state, activeProject, createExport } = useNovelWorkspace();
 const format = ref<'markdown' | 'txt'>('markdown');
-const scope = ref('全书');
+const scope = ref('full_project');
 </script>
 
 <template>
   <PageShell
     title="导出页"
-    description="选择 Markdown 或 TXT，由后端创建导出任务，后续再扩展 docx/epub。"
+    description="选择 Markdown 或 TXT，直接在浏览器中下载文件。"
   >
     <template #actions>
       <button
@@ -26,13 +30,13 @@ const scope = ref('全书');
         :disabled="!activeProject"
         @click="createExport(format, scope)"
       >
-        创建导出
+        立即导出
       </button>
     </template>
 
     <div v-if="!activeProject" class="empty-state">
       <div class="empty-state__title">请先选择作品</div>
-      <p class="empty-state__description">回到工作台选择作品后，再创建导出。</p>
+      <p class="empty-state__description">回到工作台选择作品后，再进行导出。</p>
     </div>
 
     <div v-else class="grid grid--two">
@@ -41,7 +45,7 @@ const scope = ref('全书');
         <label class="field">
           <span>范围</span>
           <select v-model="scope">
-            <option v-for="item in exportScopes" :key="item" :value="item">{{ item }}</option>
+            <option v-for="item in exportScopes" :key="item.value" :value="item.value">{{ item.label }}</option>
           </select>
         </label>
       </section>
@@ -61,15 +65,15 @@ const scope = ref('全书');
       <div class="card__title">导出记录</div>
       <div v-if="state.exports.length === 0" class="empty-state">
         <div class="empty-state__title">暂无导出记录</div>
-        <p class="empty-state__description">选择范围和格式后创建导出。</p>
+        <p class="empty-state__description">选择范围和格式后点击导出。</p>
       </div>
       <div v-else class="stack">
         <article v-for="item in state.exports" :key="item.id" class="list-item">
           <div>
             <div class="list-item__title">{{ item.fileName }}</div>
-            <div class="list-item__text">{{ item.scope }} · {{ item.format.toUpperCase() }}</div>
+            <div class="list-item__text">{{ item.scope }} / {{ item.format.toUpperCase() }}</div>
           </div>
-          <span class="badge badge--ok">{{ item.status === 'created' ? '已创建' : '失败' }}</span>
+          <span class="badge badge--ok">{{ item.status === 'created' ? '已完成' : '失败' }}</span>
         </article>
       </div>
       <p class="helper-text">{{ state.lastMessage }}</p>

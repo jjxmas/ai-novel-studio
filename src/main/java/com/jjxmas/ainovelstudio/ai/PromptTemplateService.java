@@ -1,21 +1,16 @@
 package com.jjxmas.ainovelstudio.ai;
 
-import java.util.Map;
-
-import com.jjxmas.ainovelstudio.common.util.JsonUtils;
+import com.jjxmas.ainovelstudio.pojo.dto.ChapterContext;
 import com.jjxmas.ainovelstudio.prompts.ChapterGenerationPrompts;
 import com.jjxmas.ainovelstudio.prompts.IdeaGenerationPrompts;
+import java.util.List;
+import java.util.Map;
+import java.util.StringJoiner;
 import org.springframework.stereotype.Service;
 
-/**
- * 提示词模板服务，集中生成不同 AI 任务的系统提示词和用户提示词。
- */
 @Service
 public class PromptTemplateService {
 
-    /**
-     * 根据任务类型返回对应的系统提示词。
-     */
     public String systemPrompt(AiTaskType taskType) {
         return switch (taskType) {
             case IDEA_GENERATION -> IdeaGenerationPrompts.IDEA_GENERATION_SYSTEM;
@@ -24,7 +19,8 @@ public class PromptTemplateService {
             case SETTING_DRAFT -> "你是长篇小说设定建造器。根据已确认蓝图生成结构化设定草案。只输出符合要求的 JSON，不要输出 Markdown、解释或代码围栏。不得创造蓝图之外的核心实体。";
             case OUTLINE_WORKFLOW_DRAFT -> "你是长篇小说大纲规划器。根据已确认设定生成可写作的大纲草案。只输出 JSON，不要输出 Markdown、解释或代码围栏。";
             case CHAPTER_GENERATION -> ChapterGenerationPrompts.CHAPTER_GENERATION_SYSTEM;
-            case REWRITE -> "你是长篇网文改写助手。请根据用户修改意见重写内容，保持原目标和关键设定一致。";
+            case REWRITE -> "你是长篇网文改写助手。请根据用户修改意见重写内容，保持原目标、连续性和关键设定一致。";
+            case CHAPTER_FACT_EXTRACTION -> "你是小说章节事实抽取助手。请从已完成章节正文中提取结构化事实变化。只输出合法 JSON，不要输出 Markdown、解释或代码围栏；不得编造正文中不存在的事实。";
             case CHAPTER_SUMMARY -> "你是小说章节摘要助手。请提取剧情、人物状态、地点移动和伏笔变化，输出中文摘要。";
             case MEMORY_COMPRESSION -> "你是长篇小说记忆压缩助手。请把多条摘要压缩成一条中高层记忆，保留主线、人物变化和伏笔。";
             case GLOBAL_MEMORY_UPDATE -> "你是长篇小说总摘要维护助手。请根据旧总摘要和新阶段摘要更新全局总摘要。";
@@ -107,16 +103,9 @@ public class PromptTemplateService {
                 """.formatted(context);
     }
 
-
-
-
-    /**
-     * 生成创意重写任务的用户提示词。
-     */
     public String ideaRewritePrompt(String original, String instruction) {
         return """
                 请根据修改意见重写这个小说创意方案。
-
                 【原创意】
                 %s
 
@@ -127,63 +116,110 @@ public class PromptTemplateService {
                 """.formatted(original, instruction);
     }
 
-    /**
-     * 生成章节正文生成任务的用户提示词。
-     */
-    public String chapterGenerationPrompt(Map<String, Object> context, String title, String outline, String advice) {
+    public String chapterGenerationPrompt(ChapterContext context) {
         return """
                 请生成一章适合连载网文的正文。这是长篇连续章节，不是独立短篇。
 
-                【结构化上下文 JSON】
+                [TASK]
+                生成第 %s 章《%s》的正文。
+
+                [GOAL]
+                严格完成当前章节大纲中的目标、阻碍、推进结果，并自然留下章节钩子。
+
+                [PROJECT_PROFILE]
                 %s
 
-                【章节标题】
+                [IMMUTABLE_SETTING]
                 %s
 
-                【章节大纲】
+                [STORY_PLAN]
                 %s
 
-                【用户要求】
+                [CHAPTER_PLAN]
                 %s
 
-                要求：
-                1. 不要写解释，不要输出大纲。
-                2. 如果“上一章连续性.存在上一章”为 true，开头必须直接承接“上一章连续性.结尾片段”的最后动作、对白、地点和人物状态。
-                3. 不要无理由跳时间、换地点、换视角；如必须跳转，先用一两句话交代过渡。
-                4. 必须处理上一章连续性里的未解决事项、关键事件、人物变化、地点变化和伏笔变化。
-                5. 严格执行“本章承接契约”和当前章节大纲，避免另起炉灶创造新主线。
-                6. 尽量减少机械总结感，多用具体动作、对话和场景细节。
-                7. 结尾保留自然钩子，但不要覆盖已经建立的人物状态和设定代价。
-                """.formatted(JsonUtils.toJson(context), title, outline, blankToDefault(advice, "无"));
+                [CONTINUITY]
+                %s
+
+                [CURRENT_STATE]
+                %s
+
+                [ACTIVE_THREADS]
+                %s
+
+                [MEMORY_STACK]
+                %s
+
+                [CONSTRAINTS]
+                %s
+
+                [ACCEPTANCE]
+                1. 只输出小说正文，不输出解释、提纲、分析或总结。
+                2. 如果存在上一章，开头必须自然承接上一章最后的动作、对话、地点或状态。
+                3. 不要无理由跳时间、跳地点、跳视角；如必须转场，先做简短过渡。
+                4. 不得另起炉灶创造新的主线，不得覆盖既有设定代价。
+                5. 优先用具体动作、对白和场景细节推进，不要写成摘要。
+                """.formatted(
+                safeChapterNo(context),
+                safeChapterTitle(context),
+                renderProjectProfile(context),
+                renderImmutableSetting(context),
+                renderStoryPlan(context),
+                renderChapterPlan(context),
+                renderContinuity(context),
+                renderCurrentState(context),
+                renderActiveThreads(context),
+                renderMemoryStack(context),
+                renderConstraints(context));
     }
 
-    /**
-     * 生成章节正文重写任务的用户提示词。
-     */
-    public String rewritePrompt(Map<String, Object> context, String content, String instruction) {
+    public String rewritePrompt(ChapterContext context, String content) {
         return """
-                请根据修改意见重写下面的章节正文。
+                请根据当前章节上下文重写下面的章节正文。
 
-                【结构化上下文 JSON】
+                [TASK]
+                重写第 %s 章《%s》的正文，保持主线目标、连续性和关键设定不变。
+
+                [CHAPTER_PLAN]
                 %s
 
-                【原正文】
+                [CONTINUITY]
                 %s
 
-                【修改意见】
+                [CURRENT_STATE]
                 %s
 
-                要求：只输出重写后的正文，保持连续性和风格一致。
-                """.formatted(JsonUtils.toJson(context), content, instruction);
+                [ACTIVE_THREADS]
+                %s
+
+                [MEMORY_STACK]
+                %s
+
+                [CONSTRAINTS]
+                %s
+
+                [ORIGINAL_CONTENT]
+                %s
+
+                [ACCEPTANCE]
+                1. 只输出重写后的正文。
+                2. 保持章节目标、连续性和风格一致。
+                3. 不得擅自修改已经确认的设定和上一章已发生事实。
+                """.formatted(
+                safeChapterNo(context),
+                safeChapterTitle(context),
+                renderChapterPlan(context),
+                renderContinuity(context),
+                renderCurrentState(context),
+                renderActiveThreads(context),
+                renderMemoryStack(context),
+                renderConstraints(context),
+                content);
     }
 
-    /**
-     * 生成章节摘要任务的用户提示词。
-     */
     public String chapterSummaryPrompt(String title, String content) {
         return """
                 请为以下章节生成单章结构化摘要。只输出 JSON，不要输出 Markdown、解释或代码围栏。
-
                 【章节标题】
                 %s
 
@@ -203,13 +239,84 @@ public class PromptTemplateService {
                 """.formatted(title, content);
     }
 
-    /**
-     * 生成记忆压缩任务的用户提示词。
-     */
+    public String chapterFactExtractionPrompt(String title, String content) {
+        return """
+                请从以下章节正文中提取结构化事实变化。只输出 JSON，不要输出 Markdown、解释或代码围栏。
+
+                【章节标题】
+                %s
+
+                【章节正文】
+                %s
+
+                【输出 JSON 结构】
+                {
+                  "events": [
+                    {
+                      "eventType": "conflict",
+                      "name": "事件名",
+                      "description": "按正文描述事件发生了什么",
+                      "locationText": "地点文本，没有则为空字符串",
+                      "eventTimeText": "时间描述，没有则为空字符串",
+                      "importance": 1
+                    }
+                  ],
+                  "stateChanges": [
+                    {
+                      "entityType": "character",
+                      "entityName": "实体名",
+                      "stateType": "injury",
+                      "oldValue": {"value": "变更前，没有则空对象"},
+                      "newValue": {"value": "变更后"}
+                    }
+                  ],
+                  "relationChanges": [
+                    {
+                      "sourceType": "character",
+                      "sourceName": "源实体名",
+                      "targetType": "organization",
+                      "targetName": "目标实体名",
+                      "relationType": "ally",
+                      "changeType": "create",
+                      "note": "关系变化说明"
+                    }
+                  ],
+                  "foreshadowChanges": [
+                    {
+                      "threadKey": "stable_thread_key",
+                      "threadTitle": "伏笔标题",
+                      "threadType": "foreshadow",
+                      "changeType": "setup",
+                      "setupText": "本章埋下了什么",
+                      "progressText": "本章推进了什么，没有则空字符串",
+                      "payoffHint": "后续可回收方向，没有则空字符串"
+                    }
+                  ],
+                  "unresolvedThreads": [
+                    {
+                      "threadKey": "stable_thread_key",
+                      "threadTitle": "未解线程标题",
+                      "threadType": "mystery",
+                      "description": "下一章必须承接的问题、危险、承诺或目标",
+                      "urgency": "high",
+                      "targetChapterNo": 0
+                    }
+                  ],
+                  "issues": ["对正文中不够确定、命名模糊或需要人工确认的点做简短说明"]
+                }
+
+                要求：
+                1. 只提取正文中已经发生或已经明确提出的事实。
+                2. 不要把推测当成事实；不确定时写入 issues。
+                3. 没有的数组必须输出空数组，不要省略字段。
+                4. `threadKey` 要稳定、短小、可复用，优先使用英文下划线风格。
+                5. `changeType` 建议使用：`create` / `update` / `end` / `setup` / `advance` / `payoff`。
+                """.formatted(title, content);
+    }
+
     public String compressionPrompt(String sourceType, String content) {
         return """
                 请把以下%s压缩成一条阶段记忆。
-
                 【待压缩内容】
                 %s
 
@@ -217,13 +324,9 @@ public class PromptTemplateService {
                 """.formatted(sourceType, content);
     }
 
-    /**
-     * 生成全局记忆更新任务的用户提示词。
-     */
     public String globalMemoryPrompt(String oldGlobal, String newMemory) {
         return """
                 请根据旧全局总摘要和新增阶段记忆，更新全局总摘要。
-
                 【旧全局总摘要】
                 %s
 
@@ -234,9 +337,199 @@ public class PromptTemplateService {
                 """.formatted(blankToDefault(oldGlobal, "暂无"), newMemory);
     }
 
-    /**
-     * 为空白文本提供默认值。
-     */
+    private int safeChapterNo(ChapterContext context) {
+        return context == null
+                || context.getCurrentChapter() == null
+                || context.getCurrentChapter().getChapterNo() == null
+                ? 0
+                : context.getCurrentChapter().getChapterNo();
+    }
+
+    private String safeChapterTitle(ChapterContext context) {
+        return context == null || context.getCurrentChapter() == null
+                ? ""
+                : blankToDefault(context.getCurrentChapter().getTitle(), "");
+    }
+
+    private String renderProjectProfile(ChapterContext context) {
+        if (context == null || context.getProjectProfile() == null) {
+            return "项目画像为空。";
+        }
+        ChapterContext.ProjectProfile profile = context.getProjectProfile();
+        return """
+                标题：%s
+                类型：%s
+                平台：%s
+                全书目标字数：%d-%d
+                单章目标字数：%d
+                风格偏好：%s
+                """.formatted(
+                blankToDefault(profile.getTitle(), "未命名作品"),
+                blankToDefault(profile.getGenres(), "未提供"),
+                blankToDefault(profile.getPlatformTarget(), "未提供"),
+                profile.getTargetWordCountMin() == null ? 0 : profile.getTargetWordCountMin(),
+                profile.getTargetWordCountMax() == null ? 0 : profile.getTargetWordCountMax(),
+                profile.getTargetChapterWordCount() == null ? 3000 : profile.getTargetChapterWordCount(),
+                blankToDefault(profile.getStylePreference(), "未提供"));
+    }
+
+    private String renderImmutableSetting(ChapterContext context) {
+        if (context == null || context.getImmutableSetting() == null) {
+            return "未提供设定总览。";
+        }
+        ChapterContext.ImmutableSetting setting = context.getImmutableSetting();
+        return """
+                设定摘要：%s
+                设定总览：%s
+                """.formatted(
+                blankToDefault(setting.getSettingSummary(), "未提供"),
+                blankToDefault(setting.getSettingOverview(), "未提供"));
+    }
+
+    private String renderStoryPlan(ChapterContext context) {
+        if (context == null || context.getStoryPlan() == null) {
+            return "未提供全局大纲。";
+        }
+        return blankToDefault(context.getStoryPlan().getGlobalOutline(), "未提供全局大纲。");
+    }
+
+    private String renderChapterPlan(ChapterContext context) {
+        if (context == null || context.getCurrentChapter() == null) {
+            return "未提供当前章节大纲。";
+        }
+        ChapterContext.CurrentChapter chapter = context.getCurrentChapter();
+        return """
+                标题：%s
+                大纲：%s
+                场景计划：%s
+                """.formatted(
+                blankToDefault(chapter.getTitle(), "未提供"),
+                blankToDefault(chapter.getOutline(), "未提供"),
+                renderList(chapter.getScenePlan()));
+    }
+
+    private String renderContinuity(ChapterContext context) {
+        if (context == null || context.getContinuity() == null) {
+            return "未提供连续性信息。";
+        }
+        ChapterContext.Continuity continuity = context.getContinuity();
+        if (!Boolean.TRUE.equals(continuity.getHasPreviousChapter())) {
+            return """
+                    上一章：无
+                    开场要求：%s
+                    本章任务：%s
+                    """.formatted(
+                    blankToDefault(continuity.getOpeningRequirement(), "建立本章主场景。"),
+                    blankToDefault(continuity.getChapterTask(), "完成当前章节目标。"));
+        }
+        return """
+                上一章：第 %d 章《%s》
+                上一章摘要：%s
+                关键事件：%s
+                人物变化：%s
+                地点变化：%s
+                伏笔变化：%s
+                结尾片段：%s
+                开场要求：%s
+                必须承接：%s
+                本章任务：%s
+                """.formatted(
+                continuity.getPreviousChapterNo() == null ? 0 : continuity.getPreviousChapterNo(),
+                blankToDefault(continuity.getPreviousChapterTitle(), "未提供"),
+                blankToDefault(continuity.getPreviousChapterSummary(), "未提供"),
+                renderList(continuity.getPreviousKeyEvents()),
+                renderList(continuity.getPreviousCharacterChanges()),
+                renderList(continuity.getPreviousLocationChanges()),
+                renderList(continuity.getPreviousForeshadowChanges()),
+                blankToDefault(continuity.getPreviousChapterTail(), "未提供"),
+                blankToDefault(continuity.getOpeningRequirement(), "自然承接上一章。"),
+                renderList(continuity.getCarryForwardRequirements()),
+                blankToDefault(continuity.getChapterTask(), "完成当前章节目标。"));
+    }
+
+    private String renderCurrentState(ChapterContext context) {
+        if (context == null || context.getCurrentState() == null) {
+            return "Current state snapshot is not available.";
+        }
+        ChapterContext.CurrentState currentState = context.getCurrentState();
+        return """
+                relevantCharacters: %s
+                relevantOrganizations: %s
+                relevantLocations: %s
+                relevantItems: %s
+                relevantRelations: %s
+                relevantStateRecords: %s
+                note: If a field is empty, do not invent hidden facts that are not present in the provided context.
+                """.formatted(
+                renderList(currentState.getRelevantCharacters()),
+                renderList(currentState.getRelevantOrganizations()),
+                renderList(currentState.getRelevantLocations()),
+                renderList(currentState.getRelevantItems()),
+                renderList(currentState.getRelevantRelations()),
+                renderList(currentState.getRelevantStateRecords()));
+    }
+
+    private String renderActiveThreads(ChapterContext context) {
+        if (context == null || context.getActiveThreads() == null) {
+            return "暂无活动中的长期线程。";
+        }
+        ChapterContext.ActiveThreads activeThreads = context.getActiveThreads();
+        return """
+                未解线程：%s
+                活跃伏笔：%s
+                """.formatted(
+                renderList(activeThreads.getUnresolvedThreads()),
+                renderList(activeThreads.getActiveForeshadowThreads()));
+    }
+
+    private String renderMemoryStack(ChapterContext context) {
+        if (context == null || context.getMemoryStack() == null) {
+            return "暂无记忆层信息。";
+        }
+        ChapterContext.MemoryStack memoryStack = context.getMemoryStack();
+        return """
+                全局摘要：%s
+                高层摘要：%s
+                中层摘要：%s
+                近窗摘要：%s
+                """.formatted(
+                blankToDefault(memoryStack.getGlobalMemory(), "暂无"),
+                renderList(memoryStack.getHighMemories()),
+                renderList(memoryStack.getMiddleMemories()),
+                renderList(memoryStack.getRecentSummaries()));
+    }
+
+    private String renderConstraints(ChapterContext context) {
+        if (context == null || context.getGenerationConstraints() == null) {
+            return "无额外约束。";
+        }
+        ChapterContext.GenerationConstraints constraints = context.getGenerationConstraints();
+        return """
+                单章目标字数：%d
+                风格偏好：%s
+                用户要求：%s
+                数据质量警告：%s
+                """.formatted(
+                constraints.getTargetChapterWordCount() == null ? 3000 : constraints.getTargetChapterWordCount(),
+                blankToDefault(constraints.getStylePreference(), "未提供"),
+                blankToDefault(constraints.getUserAdvice(), "无"),
+                renderList(constraints.getDataQualityWarnings()));
+    }
+
+    private String renderList(List<String> values) {
+        if (values == null || values.isEmpty()) {
+            return "无";
+        }
+        StringJoiner joiner = new StringJoiner("；");
+        for (String value : values) {
+            String item = blankToDefault(value, "");
+            if (!item.isBlank()) {
+                joiner.add(item);
+            }
+        }
+        return joiner.length() == 0 ? "无" : joiner.toString();
+    }
+
     private String blankToDefault(String value, String defaultValue) {
         return value == null || value.isBlank() ? defaultValue : value;
     }

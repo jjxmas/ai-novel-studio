@@ -15,6 +15,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -46,6 +48,7 @@ public class ProjectServiceImpl extends ServiceImpl<ProjectMapper, Project> impl
      */
     @Override
     @Transactional
+    @CacheEvict(value = {"projects", "chapterContextProfiles"}, key = "#projectId")
     public void updateProject(Long projectId, ProjectCreateRequest request) {
         Project project = requireProject(projectId);
         projectConverter.updateEntity(request, project);
@@ -66,6 +69,7 @@ public class ProjectServiceImpl extends ServiceImpl<ProjectMapper, Project> impl
      * 查询指定项目并转换为接口响应。
      */
     @Override
+    @Cacheable(value = "projects", key = "#projectId")
     public ProjectResponse getProject(Long projectId) {
         return toResponse(requireProject(projectId));
     }

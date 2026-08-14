@@ -8,8 +8,6 @@ import lombok.EqualsAndHashCode;
 import lombok.experimental.Accessors;
 
 /**
- * 章节实体占位，后续可拆分章节大纲与正文版本" */
-/**
  * 章节实体，保存章节序号、大纲、正文、字数和章节工作流状态。
  */
 @Data

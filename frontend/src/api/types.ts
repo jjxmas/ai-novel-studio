@@ -116,6 +116,18 @@ export interface SettingLibrary {
   completenessScore: number;
 }
 
+export interface SettingLibrarySnapshot {
+  settingLibrary: SettingLibrary;
+  characters: StoryCharacter[];
+  organizations: Organization[];
+  locations: StoryLocation[];
+  items: StoryItem[];
+  worldRules: WorldRule[];
+  relations: EntityRelation[];
+  events: StoryEvent[];
+  stateRecords: EntityStateRecord[];
+}
+
 export interface SettingWorkflow {
   id: number;
   projectId: number;

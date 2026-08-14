@@ -17,6 +17,15 @@ spring:
     time-zone: Asia/Shanghai
     serialization:
       write-dates-as-timestamps: false
+  data:
+    redis:
+      host: ${AI_NOVEL_REDIS_HOST:192.168.56.200}
+      port: ${AI_NOVEL_REDIS_PORT:6379}
+      password: ${AI_NOVEL_REDIS_PASSWORD:}
+      database: ${AI_NOVEL_REDIS_DATABASE:0}
+      timeout: ${AI_NOVEL_REDIS_TIMEOUT:2s}
+  cache:
+    type: redis
 
 server:
   port: ${SERVER_PORT:8080}

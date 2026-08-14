@@ -30,6 +30,10 @@ import com.jjxmas.ainovelstudio.service.VersionService;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -48,6 +52,7 @@ public class OutlineServiceImpl extends ServiceImpl<OutlineMapper, Outline> impl
     private final VersionService versionService;
     private final OutlineConverter outlineConverter;
     private final ChapterConverter chapterConverter;
+    private final CacheManager cacheManager;
 
     /**
      * 注入大纲流程所需的 Mapper、任务服务和版本服务。
@@ -61,7 +66,8 @@ public class OutlineServiceImpl extends ServiceImpl<OutlineMapper, Outline> impl
             GenerationJobService generationJobService,
             VersionService versionService,
             OutlineConverter outlineConverter,
-            ChapterConverter chapterConverter) {
+            ChapterConverter chapterConverter,
+            CacheManager cacheManager) {
         this.projectMapper = projectMapper;
         this.settingLibraryMapper = settingLibraryMapper;
         this.volumeMapper = volumeMapper;
@@ -71,6 +77,7 @@ public class OutlineServiceImpl extends ServiceImpl<OutlineMapper, Outline> impl
         this.versionService = versionService;
         this.outlineConverter = outlineConverter;
         this.chapterConverter = chapterConverter;
+        this.cacheManager = cacheManager;
     }
 
     /**
@@ -78,6 +85,7 @@ public class OutlineServiceImpl extends ServiceImpl<OutlineMapper, Outline> impl
      */
     @Override
     @Transactional
+    @CacheEvict(value = {"globalOutlines", "chapterContextOutlines"}, key = "#request.projectId")
     public OutlineResponse generateOutline(OutlineGenerateRequest request) {
         if (!"global".equals(request.getOutlineLevel())) {
             throw new BusinessException(ErrorCode.WORKFLOW_GATE_NOT_MET, "第二版只开放全局大纲生成入口");
@@ -123,6 +131,7 @@ public class OutlineServiceImpl extends ServiceImpl<OutlineMapper, Outline> impl
      * 查询指定项目的全局大纲。
      */
     @Override
+    @Cacheable(value = "globalOutlines", key = "#projectId")
     public OutlineResponse getGlobalOutline(Long projectId) {
         requireProject(projectId);
         Outline outline = findByProjectId(projectId);
@@ -137,10 +146,12 @@ public class OutlineServiceImpl extends ServiceImpl<OutlineMapper, Outline> impl
      */
     @Override
     @Transactional
+    @CacheEvict(value = {"globalOutlines", "chapterContextOutlines"}, key = "#projectId")
     public void updateGlobalOutline(Long projectId, OutlineUpdateRequest request) {
         Outline outline = requireOutline(projectId);
         outline.setTitle(request.getTitle()).setContent(request.getContent()).setConfirmedAt(null);
         updateById(outline);
+        evictOutlineCaches(projectId);
         versionService.recordVersion(
                 projectId,
                 "global_outline",
@@ -160,6 +171,7 @@ public class OutlineServiceImpl extends ServiceImpl<OutlineMapper, Outline> impl
     public void updateGlobalOutlineById(Long outlineId, OutlineUpdateRequest request) {
         Outline outline = requireOutlineById(outlineId);
         updateGlobalOutline(outline.getProjectId(), request);
+        evictOutlineCaches(outline.getProjectId());
     }
 
     /**
@@ -167,6 +179,7 @@ public class OutlineServiceImpl extends ServiceImpl<OutlineMapper, Outline> impl
      */
     @Override
     @Transactional
+    @CacheEvict(value = {"globalOutlines", "chapterContextOutlines"}, key = "#projectId")
     public OutlineResponse rewriteGlobalOutline(Long projectId, OutlineRewriteRequest request) {
         Outline outline = requireOutline(projectId);
         outline.setContent(outline.getContent() + "\n\n【根据修改意见调整】\n" + request.getInstruction())
@@ -190,10 +203,12 @@ public class OutlineServiceImpl extends ServiceImpl<OutlineMapper, Outline> impl
      */
     @Override
     @Transactional
+    @CacheEvict(value = {"globalOutlines", "chapterContextOutlines"}, key = "#projectId")
     public void confirmGlobalOutline(Long projectId) {
         Outline outline = requireOutline(projectId);
         outline.setConfirmedAt(LocalDateTime.now());
         updateById(outline);
+        evictOutlineCaches(projectId);
         Project project = requireProject(projectId);
         project.setStatus("outline_confirmed");
         projectMapper.updateById(project);
@@ -216,6 +231,7 @@ public class OutlineServiceImpl extends ServiceImpl<OutlineMapper, Outline> impl
     public void confirmGlobalOutlineById(Long outlineId) {
         Outline outline = requireOutlineById(outlineId);
         confirmGlobalOutline(outline.getProjectId());
+        evictOutlineCaches(outline.getProjectId());
     }
 
     /**
@@ -223,6 +239,7 @@ public class OutlineServiceImpl extends ServiceImpl<OutlineMapper, Outline> impl
      */
     @Override
     @Transactional
+    @CacheEvict(value = {"globalOutlines", "chapterContextOutlines"}, key = "#projectId")
     public List<ChapterResponse> generateChapterOutlines(Long projectId) {
         Outline outline = requireConfirmedOutline(projectId);
         chapterMapper.delete(new LambdaQueryWrapper<Chapter>().eq(Chapter::getProjectId, projectId));
@@ -354,6 +371,15 @@ public class OutlineServiceImpl extends ServiceImpl<OutlineMapper, Outline> impl
      */
     private Outline findByProjectId(Long projectId) {
         return getOne(new LambdaQueryWrapper<Outline>().eq(Outline::getProjectId, projectId).last("LIMIT 1"));
+    }
+
+    private void evictOutlineCaches(Long projectId) {
+        for (String cacheName : List.of("globalOutlines", "chapterContextOutlines")) {
+            Cache cache = cacheManager.getCache(cacheName);
+            if (cache != null) {
+                cache.evict(projectId);
+            }
+        }
     }
 
     /**

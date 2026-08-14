@@ -1,17 +1,14 @@
 package com.jjxmas.ainovelstudio.ai;
 
 import java.util.Map;
+import java.util.ArrayList;
+import java.util.List;
+import reactor.core.publisher.Flux;
 import org.springframework.stereotype.Component;
 
-/**
- * 模型兜底实现。真实模型不可用时仍保证创作流程可继续。
- */
 @Component
 public class MockNovelAiClient implements NovelAiClient {
 
-    /**
-     * 返回模拟生成结果，保证真实模型不可用时流程仍可继续。
-     */
     @Override
     public AiGenerateResult generate(AiGenerateCommand command) {
         return AiGenerateResult.builder()
@@ -22,9 +19,16 @@ public class MockNovelAiClient implements NovelAiClient {
                 .build();
     }
 
-    /**
-     * 按任务类型生成对应的模拟文本内容。
-     */
+    @Override
+    public Flux<String> stream(AiGenerateCommand command) {
+        String content = mockContent(command);
+        List<String> chunks = new ArrayList<>();
+        for (int start = 0; start < content.length(); start += 24) {
+            chunks.add(content.substring(start, Math.min(start + 24, content.length())));
+        }
+        return Flux.fromIterable(chunks);
+    }
+
     private String mockContent(AiGenerateCommand command) {
         if (command.getTaskType() == AiTaskType.SETTING_BLUEPRINT) {
             return """
@@ -48,6 +52,54 @@ public class MockNovelAiClient implements NovelAiClient {
                     人物变化：主角获得新的经验或压力。
                     地点变化：围绕当前章节场景推进。
                     伏笔变化：保留一个后续可回收的线索。
+                    """;
+        }
+        if (command.getTaskType() == AiTaskType.CHAPTER_FACT_EXTRACTION) {
+            return """
+                    {
+                      "events": [
+                        {
+                          "eventType": "conflict",
+                          "name": "本章核心冲突推进",
+                          "description": "主角围绕当前目标行动，并在过程中遭遇新的阻碍或代价。",
+                          "locationText": "",
+                          "eventTimeText": "",
+                          "importance": 7
+                        }
+                      ],
+                      "stateChanges": [
+                        {
+                          "entityType": "character",
+                          "entityName": "主角",
+                          "stateType": "pressure",
+                          "oldValue": {"value": "原有压力状态"},
+                          "newValue": {"value": "压力进一步上升"}
+                        }
+                      ],
+                      "relationChanges": [],
+                      "foreshadowChanges": [
+                        {
+                          "threadKey": "chapter_mock_hook",
+                          "threadTitle": "本章留下的新线索",
+                          "threadType": "foreshadow",
+                          "changeType": "setup",
+                          "setupText": "本章结尾留下了一个后续可回收的线索。",
+                          "progressText": "",
+                          "payoffHint": "后续章节可以围绕这条线索展开。"
+                        }
+                      ],
+                      "unresolvedThreads": [
+                        {
+                          "threadKey": "chapter_mock_goal",
+                          "threadTitle": "当前章节后的未解目标",
+                          "threadType": "goal",
+                          "description": "下一章仍需承接当前目标和新出现的危险。",
+                          "urgency": "high",
+                          "targetChapterNo": 0
+                        }
+                      ],
+                      "issues": []
+                    }
                     """;
         }
         if (command.getTaskType() == AiTaskType.MEMORY_COMPRESSION) {

@@ -1,9 +1,11 @@
 package com.jjxmas.ainovelstudio.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.jjxmas.ainovelstudio.common.exception.BusinessException;
 import com.jjxmas.ainovelstudio.common.exception.ErrorCode;
+import com.jjxmas.ainovelstudio.common.entity.BaseEntity;
 import com.jjxmas.ainovelstudio.converter.SettingLibraryConverter;
 import com.jjxmas.ainovelstudio.mapper.EntityRelationMapper;
 import com.jjxmas.ainovelstudio.mapper.EntityStateRecordMapper;
@@ -25,6 +27,7 @@ import com.jjxmas.ainovelstudio.pojo.dto.OrganizationUpsertRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.SettingLibraryGenerateRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.SettingLibraryResponse;
 import com.jjxmas.ainovelstudio.pojo.dto.SettingLibraryRewriteRequest;
+import com.jjxmas.ainovelstudio.pojo.dto.SettingLibrarySnapshotResponse;
 import com.jjxmas.ainovelstudio.pojo.dto.SettingLibraryUpdateRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.StoryCharacterResponse;
 import com.jjxmas.ainovelstudio.pojo.dto.StoryCharacterUpsertRequest;
@@ -53,6 +56,12 @@ import com.jjxmas.ainovelstudio.service.VersionService;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.function.BiConsumer;
+import java.util.function.Function;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -72,6 +81,7 @@ public class SettingLibraryServiceImpl extends ServiceImpl<SettingLibraryMapper,
     private final GenerationJobService generationJobService;
     private final VersionService versionService;
     private final SettingLibraryConverter settingLibraryConverter;
+    private final CacheManager cacheManager;
 
     public SettingLibraryServiceImpl(
             ProjectMapper projectMapper,
@@ -86,7 +96,8 @@ public class SettingLibraryServiceImpl extends ServiceImpl<SettingLibraryMapper,
             EntityStateRecordMapper entityStateRecordMapper,
             GenerationJobService generationJobService,
             VersionService versionService,
-            SettingLibraryConverter settingLibraryConverter) {
+            SettingLibraryConverter settingLibraryConverter,
+            CacheManager cacheManager) {
         this.projectMapper = projectMapper;
         this.ideaMapper = ideaMapper;
         this.storyCharacterMapper = storyCharacterMapper;
@@ -100,10 +111,12 @@ public class SettingLibraryServiceImpl extends ServiceImpl<SettingLibraryMapper,
         this.generationJobService = generationJobService;
         this.versionService = versionService;
         this.settingLibraryConverter = settingLibraryConverter;
+        this.cacheManager = cacheManager;
     }
 
     @Override
     @Transactional
+    @CacheEvict(value = {"settingLibraries", "chapterContextSettings"}, key = "#request.projectId")
     public SettingLibraryResponse generateSettingLibrary(SettingLibraryGenerateRequest request) {
         Project project = requireProject(request.getProjectId());
         Idea selectedIdea = requireSelectedIdea(project, request.getIdeaId());
@@ -151,13 +164,49 @@ public class SettingLibraryServiceImpl extends ServiceImpl<SettingLibraryMapper,
     }
 
     @Override
+    @Cacheable(value = "settingLibraries", key = "#projectId")
     public SettingLibraryResponse getSettingLibrary(Long projectId) {
         requireProject(projectId);
         return toResponse(requireSetting(projectId));
     }
 
     @Override
+    public SettingLibrarySnapshotResponse getSettingLibrarySnapshot(Long projectId) {
+        requireProject(projectId);
+        SettingLibrary setting = requireSetting(projectId);
+        List<StoryCharacterResponse> characters = listCharacters(projectId);
+        List<OrganizationResponse> organizations = listOrganizations(projectId);
+        List<StoryLocationResponse> locations = listLocations(projectId);
+        List<StoryItemResponse> items = listItems(projectId);
+        List<WorldRuleResponse> worldRules = listWorldRules(projectId);
+        List<EntityRelationResponse> relations = listRelations(projectId);
+        List<StoryEventResponse> events = listEvents(projectId);
+        List<EntityStateRecordResponse> stateRecords = listStateRecords(projectId);
+        return SettingLibrarySnapshotResponse.builder()
+                .settingLibrary(toResponse(
+                        setting,
+                        characters.size(),
+                        organizations.size(),
+                        locations.size(),
+                        items.size(),
+                        worldRules.size(),
+                        relations.size(),
+                        events.size(),
+                        stateRecords.size()))
+                .characters(characters)
+                .organizations(organizations)
+                .locations(locations)
+                .items(items)
+                .worldRules(worldRules)
+                .relations(relations)
+                .events(events)
+                .stateRecords(stateRecords)
+                .build();
+    }
+
+    @Override
     @Transactional
+    @CacheEvict(value = {"settingLibraries", "chapterContextSettings"}, key = "#projectId")
     public SettingLibraryResponse updateSettingLibrary(Long projectId, SettingLibraryUpdateRequest request) {
         SettingLibrary setting = requireSetting(projectId);
         String overview = defaultText(request.getOverview(), request.getSummary());
@@ -176,17 +225,22 @@ public class SettingLibraryServiceImpl extends ServiceImpl<SettingLibraryMapper,
                 defaultText(request.getChangeNote(), "用户更新设定库总览"),
                 null,
                 null);
+        evictSettingLibrary(projectId);
         return toResponse(setting);
     }
 
     @Override
     @Transactional
     public SettingLibraryResponse updateSettingLibraryById(Long settingLibraryId, SettingLibraryUpdateRequest request) {
-        return updateSettingLibrary(requireSettingById(settingLibraryId).getProjectId(), request);
+        Long projectId = requireSettingById(settingLibraryId).getProjectId();
+        SettingLibraryResponse response = updateSettingLibrary(projectId, request);
+        evictSettingLibrary(projectId);
+        return response;
     }
 
     @Override
     @Transactional
+    @CacheEvict(value = {"settingLibraries", "chapterContextSettings"}, key = "#projectId")
     public SettingLibraryResponse rewriteSettingLibrary(Long projectId, SettingLibraryRewriteRequest request) {
         SettingLibrary setting = requireSetting(projectId);
         String rewrittenOverview = defaultText(setting.getOverview()) + "\n\n[补充说明]\n" + defaultText(request.getInstruction());
@@ -219,6 +273,7 @@ public class SettingLibraryServiceImpl extends ServiceImpl<SettingLibraryMapper,
 
     @Override
     @Transactional
+    @CacheEvict(value = {"settingLibraries", "chapterContextSettings"}, key = "#projectId")
     public SettingLibraryResponse confirmSettingLibrary(Long projectId) {
         SettingLibrary setting = requireSetting(projectId);
         setting.setStatus("confirmed").setConfirmedAt(LocalDateTime.now());
@@ -237,13 +292,17 @@ public class SettingLibraryServiceImpl extends ServiceImpl<SettingLibraryMapper,
                 "确认设定库",
                 null,
                 null);
+        evictSettingLibrary(projectId);
         return toResponse(setting);
     }
 
     @Override
     @Transactional
     public SettingLibraryResponse confirmSettingLibraryById(Long settingLibraryId) {
-        return confirmSettingLibrary(requireSettingById(settingLibraryId).getProjectId());
+        Long projectId = requireSettingById(settingLibraryId).getProjectId();
+        SettingLibraryResponse response = confirmSettingLibrary(projectId);
+        evictSettingLibrary(projectId);
+        return response;
     }
 
     @Override
@@ -257,26 +316,28 @@ public class SettingLibraryServiceImpl extends ServiceImpl<SettingLibraryMapper,
 
     @Override
     @Transactional
-    public Long createCharacter(Long projectId, StoryCharacterUpsertRequest request) {
-        requireProject(projectId);
-        StoryCharacter character = new StoryCharacter().setProjectId(projectId);
-        applyCharacter(character, request);
-        storyCharacterMapper.insert(character);
-        return character.getId();
+    public StoryCharacterResponse createCharacter(Long projectId, StoryCharacterUpsertRequest request) {
+        return createEntity(
+                projectId,
+                new StoryCharacter().setProjectId(projectId),
+                request,
+                this::applyCharacter,
+                storyCharacterMapper,
+                settingLibraryConverter::toCharacterResponse);
     }
 
     @Override
     @Transactional
-    public void updateCharacter(Long projectId, Long characterId, StoryCharacterUpsertRequest request) {
+    public StoryCharacterResponse updateCharacter(Long projectId, Long characterId, StoryCharacterUpsertRequest request) {
         StoryCharacter character = requireCharacter(projectId, characterId);
-        applyCharacter(character, request);
-        storyCharacterMapper.updateById(character);
+        return updateEntity(projectId, character, request, this::applyCharacter, storyCharacterMapper, settingLibraryConverter::toCharacterResponse);
     }
 
     @Override
     @Transactional
     public void deleteCharacter(Long projectId, Long characterId) {
         storyCharacterMapper.deleteById(requireCharacter(projectId, characterId).getId());
+        evictSettingLibrary(projectId);
     }
 
     @Override
@@ -289,26 +350,28 @@ public class SettingLibraryServiceImpl extends ServiceImpl<SettingLibraryMapper,
 
     @Override
     @Transactional
-    public Long createOrganization(Long projectId, OrganizationUpsertRequest request) {
-        requireProject(projectId);
-        Organization organization = new Organization().setProjectId(projectId);
-        applyOrganization(organization, request);
-        organizationMapper.insert(organization);
-        return organization.getId();
+    public OrganizationResponse createOrganization(Long projectId, OrganizationUpsertRequest request) {
+        return createEntity(
+                projectId,
+                new Organization().setProjectId(projectId),
+                request,
+                this::applyOrganization,
+                organizationMapper,
+                settingLibraryConverter::toOrganizationResponse);
     }
 
     @Override
     @Transactional
-    public void updateOrganization(Long projectId, Long organizationId, OrganizationUpsertRequest request) {
+    public OrganizationResponse updateOrganization(Long projectId, Long organizationId, OrganizationUpsertRequest request) {
         Organization organization = requireOrganization(projectId, organizationId);
-        applyOrganization(organization, request);
-        organizationMapper.updateById(organization);
+        return updateEntity(projectId, organization, request, this::applyOrganization, organizationMapper, settingLibraryConverter::toOrganizationResponse);
     }
 
     @Override
     @Transactional
     public void deleteOrganization(Long projectId, Long organizationId) {
         organizationMapper.deleteById(requireOrganization(projectId, organizationId).getId());
+        evictSettingLibrary(projectId);
     }
 
     @Override
@@ -322,26 +385,28 @@ public class SettingLibraryServiceImpl extends ServiceImpl<SettingLibraryMapper,
 
     @Override
     @Transactional
-    public Long createLocation(Long projectId, StoryLocationUpsertRequest request) {
-        requireProject(projectId);
-        StoryLocation location = new StoryLocation().setProjectId(projectId);
-        applyLocation(location, request);
-        storyLocationMapper.insert(location);
-        return location.getId();
+    public StoryLocationResponse createLocation(Long projectId, StoryLocationUpsertRequest request) {
+        return createEntity(
+                projectId,
+                new StoryLocation().setProjectId(projectId),
+                request,
+                this::applyLocation,
+                storyLocationMapper,
+                settingLibraryConverter::toLocationResponse);
     }
 
     @Override
     @Transactional
-    public void updateLocation(Long projectId, Long locationId, StoryLocationUpsertRequest request) {
+    public StoryLocationResponse updateLocation(Long projectId, Long locationId, StoryLocationUpsertRequest request) {
         StoryLocation location = requireLocation(projectId, locationId);
-        applyLocation(location, request);
-        storyLocationMapper.updateById(location);
+        return updateEntity(projectId, location, request, this::applyLocation, storyLocationMapper, settingLibraryConverter::toLocationResponse);
     }
 
     @Override
     @Transactional
     public void deleteLocation(Long projectId, Long locationId) {
         storyLocationMapper.deleteById(requireLocation(projectId, locationId).getId());
+        evictSettingLibrary(projectId);
     }
 
     @Override
@@ -354,26 +419,28 @@ public class SettingLibraryServiceImpl extends ServiceImpl<SettingLibraryMapper,
 
     @Override
     @Transactional
-    public Long createItem(Long projectId, StoryItemUpsertRequest request) {
-        requireProject(projectId);
-        StoryItem item = new StoryItem().setProjectId(projectId);
-        applyItem(item, request);
-        storyItemMapper.insert(item);
-        return item.getId();
+    public StoryItemResponse createItem(Long projectId, StoryItemUpsertRequest request) {
+        return createEntity(
+                projectId,
+                new StoryItem().setProjectId(projectId),
+                request,
+                this::applyItem,
+                storyItemMapper,
+                settingLibraryConverter::toItemResponse);
     }
 
     @Override
     @Transactional
-    public void updateItem(Long projectId, Long itemId, StoryItemUpsertRequest request) {
+    public StoryItemResponse updateItem(Long projectId, Long itemId, StoryItemUpsertRequest request) {
         StoryItem item = requireItem(projectId, itemId);
-        applyItem(item, request);
-        storyItemMapper.updateById(item);
+        return updateEntity(projectId, item, request, this::applyItem, storyItemMapper, settingLibraryConverter::toItemResponse);
     }
 
     @Override
     @Transactional
     public void deleteItem(Long projectId, Long itemId) {
         storyItemMapper.deleteById(requireItem(projectId, itemId).getId());
+        evictSettingLibrary(projectId);
     }
 
     @Override
@@ -387,26 +454,28 @@ public class SettingLibraryServiceImpl extends ServiceImpl<SettingLibraryMapper,
 
     @Override
     @Transactional
-    public Long createWorldRule(Long projectId, WorldRuleUpsertRequest request) {
-        requireProject(projectId);
-        WorldRule worldRule = new WorldRule().setProjectId(projectId);
-        applyWorldRule(worldRule, request);
-        worldRuleMapper.insert(worldRule);
-        return worldRule.getId();
+    public WorldRuleResponse createWorldRule(Long projectId, WorldRuleUpsertRequest request) {
+        return createEntity(
+                projectId,
+                new WorldRule().setProjectId(projectId),
+                request,
+                this::applyWorldRule,
+                worldRuleMapper,
+                settingLibraryConverter::toWorldRuleResponse);
     }
 
     @Override
     @Transactional
-    public void updateWorldRule(Long projectId, Long ruleId, WorldRuleUpsertRequest request) {
+    public WorldRuleResponse updateWorldRule(Long projectId, Long ruleId, WorldRuleUpsertRequest request) {
         WorldRule worldRule = requireWorldRule(projectId, ruleId);
-        applyWorldRule(worldRule, request);
-        worldRuleMapper.updateById(worldRule);
+        return updateEntity(projectId, worldRule, request, this::applyWorldRule, worldRuleMapper, settingLibraryConverter::toWorldRuleResponse);
     }
 
     @Override
     @Transactional
     public void deleteWorldRule(Long projectId, Long ruleId) {
         worldRuleMapper.deleteById(requireWorldRule(projectId, ruleId).getId());
+        evictSettingLibrary(projectId);
     }
 
     @Override
@@ -421,26 +490,28 @@ public class SettingLibraryServiceImpl extends ServiceImpl<SettingLibraryMapper,
 
     @Override
     @Transactional
-    public Long createRelation(Long projectId, EntityRelationUpsertRequest request) {
-        requireProject(projectId);
-        EntityRelation relation = new EntityRelation().setProjectId(projectId);
-        applyRelation(relation, request);
-        entityRelationMapper.insert(relation);
-        return relation.getId();
+    public EntityRelationResponse createRelation(Long projectId, EntityRelationUpsertRequest request) {
+        return createEntity(
+                projectId,
+                new EntityRelation().setProjectId(projectId),
+                request,
+                this::applyRelation,
+                entityRelationMapper,
+                settingLibraryConverter::toRelationResponse);
     }
 
     @Override
     @Transactional
-    public void updateRelation(Long projectId, Long relationId, EntityRelationUpsertRequest request) {
+    public EntityRelationResponse updateRelation(Long projectId, Long relationId, EntityRelationUpsertRequest request) {
         EntityRelation relation = requireRelation(projectId, relationId);
-        applyRelation(relation, request);
-        entityRelationMapper.updateById(relation);
+        return updateEntity(projectId, relation, request, this::applyRelation, entityRelationMapper, settingLibraryConverter::toRelationResponse);
     }
 
     @Override
     @Transactional
     public void deleteRelation(Long projectId, Long relationId) {
         entityRelationMapper.deleteById(requireRelation(projectId, relationId).getId());
+        evictSettingLibrary(projectId);
     }
 
     @Override
@@ -454,26 +525,28 @@ public class SettingLibraryServiceImpl extends ServiceImpl<SettingLibraryMapper,
 
     @Override
     @Transactional
-    public Long createEvent(Long projectId, StoryEventUpsertRequest request) {
-        requireProject(projectId);
-        StoryEvent event = new StoryEvent().setProjectId(projectId);
-        applyEvent(event, request);
-        storyEventMapper.insert(event);
-        return event.getId();
+    public StoryEventResponse createEvent(Long projectId, StoryEventUpsertRequest request) {
+        return createEntity(
+                projectId,
+                new StoryEvent().setProjectId(projectId),
+                request,
+                this::applyEvent,
+                storyEventMapper,
+                settingLibraryConverter::toEventResponse);
     }
 
     @Override
     @Transactional
-    public void updateEvent(Long projectId, Long eventId, StoryEventUpsertRequest request) {
+    public StoryEventResponse updateEvent(Long projectId, Long eventId, StoryEventUpsertRequest request) {
         StoryEvent event = requireEvent(projectId, eventId);
-        applyEvent(event, request);
-        storyEventMapper.updateById(event);
+        return updateEntity(projectId, event, request, this::applyEvent, storyEventMapper, settingLibraryConverter::toEventResponse);
     }
 
     @Override
     @Transactional
     public void deleteEvent(Long projectId, Long eventId) {
         storyEventMapper.deleteById(requireEvent(projectId, eventId).getId());
+        evictSettingLibrary(projectId);
     }
 
     @Override
@@ -486,26 +559,28 @@ public class SettingLibraryServiceImpl extends ServiceImpl<SettingLibraryMapper,
 
     @Override
     @Transactional
-    public Long createStateRecord(Long projectId, EntityStateRecordUpsertRequest request) {
-        requireProject(projectId);
-        EntityStateRecord record = new EntityStateRecord().setProjectId(projectId);
-        applyStateRecord(record, request);
-        entityStateRecordMapper.insert(record);
-        return record.getId();
+    public EntityStateRecordResponse createStateRecord(Long projectId, EntityStateRecordUpsertRequest request) {
+        return createEntity(
+                projectId,
+                new EntityStateRecord().setProjectId(projectId),
+                request,
+                this::applyStateRecord,
+                entityStateRecordMapper,
+                settingLibraryConverter::toStateRecordResponse);
     }
 
     @Override
     @Transactional
-    public void updateStateRecord(Long projectId, Long recordId, EntityStateRecordUpsertRequest request) {
+    public EntityStateRecordResponse updateStateRecord(Long projectId, Long recordId, EntityStateRecordUpsertRequest request) {
         EntityStateRecord record = requireStateRecord(projectId, recordId);
-        applyStateRecord(record, request);
-        entityStateRecordMapper.updateById(record);
+        return updateEntity(projectId, record, request, this::applyStateRecord, entityStateRecordMapper, settingLibraryConverter::toStateRecordResponse);
     }
 
     @Override
     @Transactional
     public void deleteStateRecord(Long projectId, Long recordId) {
         entityStateRecordMapper.deleteById(requireStateRecord(projectId, recordId).getId());
+        evictSettingLibrary(projectId);
     }
 
     private Project requireProject(Long projectId) {
@@ -615,6 +690,42 @@ public class SettingLibraryServiceImpl extends ServiceImpl<SettingLibraryMapper,
                 .last("LIMIT 1"));
     }
 
+    private <E extends BaseEntity, Q, R> R createEntity(
+            Long projectId,
+            E entity,
+            Q request,
+            BiConsumer<E, Q> applier,
+            BaseMapper<E> mapper,
+            Function<E, R> converter) {
+        requireProject(projectId);
+        applier.accept(entity, request);
+        mapper.insert(entity);
+        evictSettingLibrary(projectId);
+        return converter.apply(entity);
+    }
+
+    private <E extends BaseEntity, Q, R> R updateEntity(
+            Long projectId,
+            E entity,
+            Q request,
+            BiConsumer<E, Q> applier,
+            BaseMapper<E> mapper,
+            Function<E, R> converter) {
+        applier.accept(entity, request);
+        mapper.updateById(entity);
+        evictSettingLibrary(projectId);
+        return converter.apply(entity);
+    }
+
+    private void evictSettingLibrary(Long projectId) {
+        for (String cacheName : List.of("settingLibraries", "chapterContextSettings")) {
+            Cache cache = cacheManager.getCache(cacheName);
+            if (cache != null) {
+                cache.evict(projectId);
+            }
+        }
+    }
+
     private void applyCharacter(StoryCharacter character, StoryCharacterUpsertRequest request) {
         settingLibraryConverter.updateCharacter(request, character);
         character
@@ -706,6 +817,28 @@ public class SettingLibraryServiceImpl extends ServiceImpl<SettingLibraryMapper,
         int stateRecordCount = count(entityStateRecordMapper.selectCount(new LambdaQueryWrapper<EntityStateRecord>()
                 .eq(EntityStateRecord::getProjectId, setting.getProjectId())));
 
+        return toResponse(
+                setting,
+                characterCount,
+                organizationCount,
+                locationCount,
+                itemCount,
+                ruleCount,
+                relationCount,
+                eventCount,
+                stateRecordCount);
+    }
+
+    private SettingLibraryResponse toResponse(
+            SettingLibrary setting,
+            int characterCount,
+            int organizationCount,
+            int locationCount,
+            int itemCount,
+            int ruleCount,
+            int relationCount,
+            int eventCount,
+            int stateRecordCount) {
         return SettingLibraryResponse.builder()
                 .id(setting.getId())
                 .projectId(setting.getProjectId())

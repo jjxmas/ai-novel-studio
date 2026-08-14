@@ -4,35 +4,23 @@ import com.jjxmas.ainovelstudio.pojo.dto.ChapterContentUpdateRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.ChapterGenerateRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.ChapterResponse;
 import com.jjxmas.ainovelstudio.pojo.dto.ChapterRewriteRequest;
+import com.jjxmas.ainovelstudio.pojo.dto.ChapterStreamEvent;
 import java.util.List;
+import reactor.core.publisher.Flux;
 
-/**
- * 章节服务，提供章节大纲确认、正文生成、编辑和重写能力。
- */
 public interface ChapterService {
 
-    /**
-     * 查询指定项目下的章节列表。
-     */
     List<ChapterResponse> listChapters(Long projectId);
 
-    /**
-     * 确认指定章节的大纲。
-     */
     void confirmChapterOutline(Long chapterId);
 
-    /**
-     * 根据章节生成请求生成正文。
-     */
     ChapterResponse generateChapter(ChapterGenerateRequest request);
 
-    /**
-     * 更新指定章节的正文内容。
-     */
-    void updateChapterContent(Long chapterId, ChapterContentUpdateRequest request);
+    Flux<ChapterStreamEvent> streamGenerateChapter(ChapterGenerateRequest request);
 
-    /**
-     * 根据重写指令重新生成章节正文。
-     */
+    ChapterResponse updateChapterContent(Long chapterId, ChapterContentUpdateRequest request);
+
     ChapterResponse rewriteChapter(Long chapterId, ChapterRewriteRequest request);
+
+    Flux<ChapterStreamEvent> streamRewriteChapter(Long chapterId, ChapterRewriteRequest request);
 }
