@@ -1365,12 +1365,52 @@ export function useNovelWorkspace() {
     return chapters;
   }
 
+  async function continueChapterOutlines(
+    count: 10 | 20 | 50,
+    modelConfigId?: number,
+    instruction = '',
+  ) {
+    if (!canGenerateChapters.value || !state.activeProjectId) {
+      state.lastMessage = '请先确认全局大纲，再继续生成章节大纲。';
+      return [];
+    }
+    const startChapterNo = Math.max(0, ...state.chapters.map((item) => item.chapterNo ?? 0)) + 1;
+    const chapters = await withFallback(
+      novelApi.continueChapterOutlines(state.activeProjectId, {
+        count,
+        modelConfigId,
+        instruction: instruction.trim() || undefined,
+      }),
+      () => Array.from({ length: count }, (_, index) => {
+        const chapterNo = startChapterNo + index;
+        return {
+          id: next(),
+          projectId: state.activeProjectId!,
+          chapterNo,
+          title: `第 ${chapterNo} 章 延续的线索`,
+          outline: '承接上一章的行动结果，推进长期冲突，并在结尾留下新的牵引。',
+          scenePlan: ['承接上一章', '冲突升级', '结尾钩子'],
+          content: '',
+          status: 'outline_ready' as const,
+        };
+      }),
+      `已追加 ${count} 章章节大纲`,
+      isChapterList,
+    );
+    state.chapters = [...state.chapters, ...chapters]
+      .sort((left, right) => (left.chapterNo ?? 0) - (right.chapterNo ?? 0));
+    addVersion('chapter_outline', chapters[0]?.id ?? 0, 'generate', `追加 ${count} 章章节大纲`);
+    return chapters;
+  }
+
   async function generateChapterContent(chapterId: number, suggestion = '') {
     const chapter = state.chapters.find((item) => item.id === chapterId);
     if (!chapter) {
       return;
     }
+    const originalContent = chapter.content;
     const rewriting = Boolean(chapter.content);
+    let receivedContent = false;
     const fallback = () => ({
       ...chapter,
       content: `${chapter.title}\n\n${chapter.outline}\n\n主角按照大纲推进当前事件，场景中保留人物目标、冲突升级和章末钩子。${suggestion ? `\n\n重生成意见：${suggestion}` : ''}`,
@@ -1389,13 +1429,16 @@ export function useNovelWorkspace() {
       }
     };
     try {
-      chapter.content = '';
       chapter.status = 'content_ready';
       state.lastMessage = '章节正文生成中...';
       await (rewriting
         ? novelApi.streamRewriteChapterContent(chapterId, suggestion, (event) => {
           handleProgressEvent(event);
           if (event.type === 'chunk') {
+            if (!receivedContent) {
+              chapter.content = '';
+              receivedContent = true;
+            }
             chapter.content += event.content ?? '';
           }
           if (event.type === 'done' && event.chapter) {
@@ -1408,6 +1451,10 @@ export function useNovelWorkspace() {
         : novelApi.streamGenerateChapterContent(chapter, suggestion, (event) => {
           handleProgressEvent(event);
           if (event.type === 'chunk') {
+            if (!receivedContent) {
+              chapter.content = '';
+              receivedContent = true;
+            }
             chapter.content += event.content ?? '';
           }
           if (event.type === 'done' && event.chapter) {
@@ -1424,6 +1471,7 @@ export function useNovelWorkspace() {
         state.lastMessage = '章节正文已生成';
       }
     } catch (error) {
+      chapter.content = originalContent;
       if (error instanceof Error && error.message === 'NETWORK_UNAVAILABLE') {
         Object.assign(chapter, fallback());
         state.lastMessage = '章节正文已生成（当前使用前端 mock 数据）';
@@ -1599,6 +1647,7 @@ export function useNovelWorkspace() {
     updateOutline,
     confirmOutline,
     generateChapterOutlines,
+    continueChapterOutlines,
     generateChapterContent,
     updateChapterContent,
     createCheck,

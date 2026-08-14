@@ -242,6 +242,11 @@ public class OutlineServiceImpl extends ServiceImpl<OutlineMapper, Outline> impl
     @CacheEvict(value = {"globalOutlines", "chapterContextOutlines"}, key = "#projectId")
     public List<ChapterResponse> generateChapterOutlines(Long projectId) {
         Outline outline = requireConfirmedOutline(projectId);
+        List<Chapter> existingChapters = chapterMapper.selectList(new LambdaQueryWrapper<Chapter>()
+                .eq(Chapter::getProjectId, projectId));
+        if (!existingChapters.isEmpty()) {
+            throw new BusinessException(ErrorCode.BUSINESS_ERROR, "已有章节大纲，不能覆盖生成，请使用继续生成章节大纲");
+        }
         chapterMapper.delete(new LambdaQueryWrapper<Chapter>().eq(Chapter::getProjectId, projectId));
         storyArcMapper.delete(new LambdaQueryWrapper<StoryArc>().eq(StoryArc::getProjectId, projectId));
         volumeMapper.delete(new LambdaQueryWrapper<Volume>().eq(Volume::getProjectId, projectId));

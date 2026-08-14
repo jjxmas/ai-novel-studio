@@ -1,6 +1,7 @@
 package com.jjxmas.ainovelstudio.ai;
 
 import com.jjxmas.ainovelstudio.pojo.dto.ChapterContext;
+import com.jjxmas.ainovelstudio.common.util.JsonUtils;
 import com.jjxmas.ainovelstudio.prompts.ChapterGenerationPrompts;
 import com.jjxmas.ainovelstudio.prompts.IdeaGenerationPrompts;
 import java.util.List;
@@ -18,6 +19,7 @@ public class PromptTemplateService {
             case SETTING_BLUEPRINT -> "你是长篇小说设定规划器。只输出符合要求的 JSON，不要输出 Markdown、解释或代码围栏。所有实体都必须有稳定的 key。";
             case SETTING_DRAFT -> "你是长篇小说设定建造器。根据已确认蓝图生成结构化设定草案。只输出符合要求的 JSON，不要输出 Markdown、解释或代码围栏。不得创造蓝图之外的核心实体。";
             case OUTLINE_WORKFLOW_DRAFT -> "你是长篇小说大纲规划器。根据已确认设定生成可写作的大纲草案。只输出 JSON，不要输出 Markdown、解释或代码围栏。";
+            case CHAPTER_OUTLINE_CONTINUATION -> "你是长篇小说章节大纲规划器。严格承接已有章节，只输出符合要求的合法 JSON，不要输出 Markdown、解释或代码围栏。";
             case CHAPTER_GENERATION -> ChapterGenerationPrompts.CHAPTER_GENERATION_SYSTEM;
             case REWRITE -> "你是长篇网文改写助手。请根据用户修改意见重写内容，保持原目标、连续性和关键设定一致。";
             case CHAPTER_FACT_EXTRACTION -> "你是小说章节事实抽取助手。请从已完成章节正文中提取结构化事实变化。只输出合法 JSON，不要输出 Markdown、解释或代码围栏；不得编造正文中不存在的事实。";
@@ -101,6 +103,30 @@ public class PromptTemplateService {
                 5. 每章必须有目标、阻碍、推进结果和结尾钩子。
                 6. 不得违背已确认设定库。
                 """.formatted(context);
+    }
+
+    public String chapterOutlineContinuationPrompt(Map<String, Object> context) {
+        return """
+                根据下面的长篇小说上下文，继续生成指定范围的章节大纲。
+
+                【上下文】
+                %s
+
+                【输出 JSON 结构】
+                {
+                  "newVolumes": [{"volumeNo":2,"title":"","summary":"","goal":"","estimatedWordCount":120000}],
+                  "newArcs": [{"volumeNo":1,"arcNo":2,"title":"","summary":"","goal":"","conflict":"","estimatedChapterCount":10}],
+                  "chapters": [{"chapterNo":11,"volumeNo":1,"arcNo":2,"title":"","outline":"","scenePlan":["场景目标","冲突升级","结尾钩子"]}]
+                }
+
+                要求：
+                1. chapters 必须恰好包含 count 个章节，从 startChapterNo 开始连续编号，不得重复或跳号。
+                2. title、outline 不得为空；scenePlan 必须是字符串数组。
+                3. 优先引用 existingVolumes 和 existingArcs。只有确实进入新卷或新剧情单元时，才在 newVolumes 或 newArcs 中给出完整定义。
+                4. 每个章节引用的 volumeNo 和 arcNo 必须已存在，或在本次 newVolumes/newArcs 中定义。
+                5. 承接 recentChapterOutlines、recentChapterSummaries 和 activeForeshadowThreads，不得覆盖、改写已有章节。
+                6. 遵守 globalOutline、confirmedSetting 和 instruction；instruction 为空时忽略。
+                """.formatted(JsonUtils.toJson(context));
     }
 
     public String ideaRewritePrompt(String original, String instruction) {

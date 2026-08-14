@@ -1,6 +1,9 @@
 import { del, patch, post, request, streamRequest } from './client';
 import type {
   Chapter,
+  ChapterGenerationBatch,
+  ChapterGenerationBatchCreateRequest,
+  ChapterOutlineContinueRequest,
   ChapterSummary,
   CheckResult,
   ContentVersion,
@@ -325,6 +328,7 @@ function mapChapter(data: any, projectId?: number): Chapter {
     chapterNo: data.chapterNo,
     title: data.title,
     outline: data.outline ?? '',
+    scenePlan: Array.isArray(data.scenePlan) ? data.scenePlan : [],
     content: data.content ?? '',
     status,
   };
@@ -335,6 +339,34 @@ interface ChapterStreamEvent {
   content?: string;
   chapter?: Chapter;
   message?: string;
+}
+
+function mapChapterGenerationBatch(data: any): ChapterGenerationBatch {
+  return {
+    batchId: data.batchId,
+    projectId: data.projectId,
+    status: data.status ?? 'queued',
+    totalCount: data.totalCount ?? 0,
+    pendingCount: data.pendingCount ?? 0,
+    runningCount: data.runningCount ?? 0,
+    succeededCount: data.succeededCount ?? 0,
+    failedCount: data.failedCount ?? 0,
+    skippedCount: data.skippedCount ?? 0,
+    errorMessage: data.errorMessage ?? null,
+    startedAt: data.startedAt ?? null,
+    finishedAt: data.finishedAt ?? null,
+    items: (data.items ?? []).map((item: any) => ({
+      id: item.id,
+      chapterId: item.chapterId,
+      chapterNo: item.chapterNo,
+      status: item.status ?? 'pending',
+      attemptCount: item.attemptCount ?? 0,
+      generationJobId: item.generationJobId ?? null,
+      errorMessage: item.errorMessage ?? null,
+      startedAt: item.startedAt ?? null,
+      finishedAt: item.finishedAt ?? null,
+    })),
+  };
 }
 
 function mapChapterStreamEvent(event: any, projectId?: number): ChapterStreamEvent {
@@ -565,6 +597,23 @@ export const novelApi = {
     request<any[]>(`/projects/${projectId}/chapters`).then((items) => items.map((item) => mapChapter(item, projectId))),
   generateChapterOutlines: (projectId: number) =>
     post<any[]>(`/projects/${projectId}/chapters/generate-outline`).then((items) => items.map((item) => mapChapter(item, projectId))),
+  continueChapterOutlines: (projectId: number, payload: ChapterOutlineContinueRequest) =>
+    post<any[]>(`/projects/${projectId}/chapters/continue-outline`, payload)
+      .then((items) => items.map((item) => mapChapter(item, projectId))),
+  createChapterGenerationBatch: (projectId: number, payload: ChapterGenerationBatchCreateRequest) =>
+    post<any>(`/projects/${projectId}/chapter-generation-batches`, payload).then(mapChapterGenerationBatch),
+  getChapterGenerationBatch: (batchId: number) =>
+    request<any>(`/chapter-generation-batches/${batchId}`).then(mapChapterGenerationBatch),
+  getLatestChapterGenerationBatch: (projectId: number) =>
+    request<any>(`/projects/${projectId}/chapter-generation-batches/latest`).then(mapChapterGenerationBatch),
+  cancelChapterGenerationBatch: (batchId: number) =>
+    post<any>(`/chapter-generation-batches/${batchId}/cancel`).then(mapChapterGenerationBatch),
+  pauseChapterGenerationBatch: (batchId: number) =>
+    post<any>(`/chapter-generation-batches/${batchId}/pause`).then(mapChapterGenerationBatch),
+  resumeChapterGenerationBatch: (batchId: number) =>
+    post<any>(`/chapter-generation-batches/${batchId}/resume`).then(mapChapterGenerationBatch),
+  retryFailedChapterGenerationBatch: (batchId: number) =>
+    post<any>(`/chapter-generation-batches/${batchId}/retry-failed`).then(mapChapterGenerationBatch),
   generateChapterContent: (chapter: Chapter, suggestion?: string) =>
     post<any>(`/chapters/${chapter.id}/generate-content`, {
       projectId: chapter.projectId,

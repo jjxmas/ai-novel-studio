@@ -1,6 +1,7 @@
 package com.jjxmas.ainovelstudio.controller;
 
 import com.jjxmas.ainovelstudio.common.api.ApiResponse;
+import com.jjxmas.ainovelstudio.pojo.dto.ChapterOutlineContinueRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.ChapterResponse;
 import com.jjxmas.ainovelstudio.pojo.dto.OutlineGenerateRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.OutlineResponse;
@@ -10,6 +11,7 @@ import com.jjxmas.ainovelstudio.pojo.dto.OutlineWorkflowCreateRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.OutlineWorkflowResponse;
 import com.jjxmas.ainovelstudio.service.OutlineService;
 import com.jjxmas.ainovelstudio.service.OutlineWorkflowService;
+import com.jjxmas.ainovelstudio.service.ChapterOutlineContinuationService;
 import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -28,6 +30,7 @@ public class OutlineController {
 
     private final OutlineService outlineService;
     private final OutlineWorkflowService outlineWorkflowService;
+    private final ChapterOutlineContinuationService chapterOutlineContinuationService;
 
     @GetMapping("/global-outline/ping")
     public ApiResponse<String> ping() {
@@ -109,5 +112,14 @@ public class OutlineController {
     @PostMapping({"/projects/{projectId}/chapters/generate-outline", "/projects/{projectId}/chapter-outlines/generate"})
     public ApiResponse<List<ChapterResponse>> generateChapterOutlines(@PathVariable Long projectId) {
         return ApiResponse.success("chapter-outlines-generated", outlineService.generateChapterOutlines(projectId));
+    }
+
+    @PostMapping("/projects/{projectId}/chapters/continue-outline")
+    public ApiResponse<List<ChapterResponse>> continueChapterOutlines(
+            @PathVariable Long projectId,
+            @Valid @RequestBody ChapterOutlineContinueRequest request) {
+        return ApiResponse.success(
+                "chapter-outlines-continued",
+                chapterOutlineContinuationService.continueChapterOutlines(projectId, request));
     }
 }

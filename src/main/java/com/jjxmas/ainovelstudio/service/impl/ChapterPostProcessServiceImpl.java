@@ -35,37 +35,29 @@ public class ChapterPostProcessServiceImpl implements ChapterPostProcessService 
 
     @Override
     public void refreshChapter(Long chapterId, Long modelConfigId) {
-        refreshChapter(chapterId, modelConfigId, null, null);
+        synchronouslyRefreshChapter(chapterId, modelConfigId, null, null);
     }
 
     @Override
     public void refreshChapterAndMarkDirty(Long chapterId, Long modelConfigId, String dirtyReason, String dirtyNote) {
-        refreshChapter(chapterId, modelConfigId, dirtyReason, dirtyNote);
+        synchronouslyRefreshChapter(chapterId, modelConfigId, dirtyReason, dirtyNote);
     }
 
     @Override
     @Async
     public void refreshChapterAsync(Long chapterId, Long modelConfigId) {
-        refreshChapter(chapterId, modelConfigId, null, null);
+        safelyRefreshChapter(chapterId, modelConfigId, null, null);
     }
 
     @Override
     @Async
     public void refreshChapterAndMarkDirtyAsync(Long chapterId, Long modelConfigId, String dirtyReason, String dirtyNote) {
-        refreshChapter(chapterId, modelConfigId, dirtyReason, dirtyNote);
+        safelyRefreshChapter(chapterId, modelConfigId, dirtyReason, dirtyNote);
     }
 
-    private void refreshChapter(Long chapterId, Long modelConfigId, String dirtyReason, String dirtyNote) {
+    private void safelyRefreshChapter(Long chapterId, Long modelConfigId, String dirtyReason, String dirtyNote) {
         try {
-            Chapter chapter = chapterMapper.selectById(chapterId);
-            if (chapter == null) {
-                log.warn("Skip chapter post-process because chapter does not exist. chapterId={}", chapterId);
-                return;
-            }
-            chapterMemoryService.refreshAfterChapterContent(chapter, modelConfigId);
-            if (dirtyReason != null && !dirtyReason.isBlank()) {
-                storyDirtyMarkService.markDownstreamDirty(chapter, dirtyReason, dirtyNote);
-            }
+            doRefreshChapter(chapterId, modelConfigId, dirtyReason, dirtyNote);
         } catch (RuntimeException ex) {
             log.error("Chapter post-process failed. chapterId={}, modelConfigId={}", chapterId, modelConfigId, ex);
             try {
@@ -73,6 +65,34 @@ public class ChapterPostProcessServiceImpl implements ChapterPostProcessService 
             } catch (RuntimeException recordEx) {
                 log.error("Failed to record chapter post-process failure. chapterId={}", chapterId, recordEx);
             }
+        }
+    }
+
+    private void synchronouslyRefreshChapter(
+            Long chapterId,
+            Long modelConfigId,
+            String dirtyReason,
+            String dirtyNote) {
+        try {
+            doRefreshChapter(chapterId, modelConfigId, dirtyReason, dirtyNote);
+        } catch (RuntimeException ex) {
+            try {
+                recordFailure(chapterId, modelConfigId, dirtyReason, dirtyNote, ex);
+            } catch (RuntimeException recordEx) {
+                log.error("Failed to record chapter post-process failure. chapterId={}", chapterId, recordEx);
+            }
+            throw ex;
+        }
+    }
+
+    private void doRefreshChapter(Long chapterId, Long modelConfigId, String dirtyReason, String dirtyNote) {
+        Chapter chapter = chapterMapper.selectById(chapterId);
+        if (chapter == null) {
+            throw new IllegalArgumentException("Chapter does not exist: " + chapterId);
+        }
+        chapterMemoryService.refreshAfterChapterContent(chapter, modelConfigId);
+        if (dirtyReason != null && !dirtyReason.isBlank()) {
+            storyDirtyMarkService.markDownstreamDirty(chapter, dirtyReason, dirtyNote);
         }
     }
 

@@ -11,6 +11,9 @@ import org.mapstruct.ReportingPolicy;
 public interface ChapterConverter {
 
     @Mapping(target = "outlineConfirmed", expression = "java(chapter.getConfirmedOutlineAt() != null)")
+    @Mapping(
+            target = "scenePlan",
+            expression = "java(com.jjxmas.ainovelstudio.common.util.JsonUtils.toStringList(chapter.getScenePlan()))")
     ChapterResponse toResponse(Chapter chapter);
 
     List<ChapterResponse> toResponseList(List<Chapter> chapters);

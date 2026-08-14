@@ -50,6 +50,14 @@ public class ProjectChapterGenerationQueue {
                 .doOnCancel(task::cancelIfWaiting);
     }
 
+    public Mono<Void> enqueueTask(Long projectId, Runnable task) {
+        return enqueue(projectId, () -> Mono.fromRunnable(task).thenMany(Flux.empty()))
+                .filter(event -> "error".equals(event.getType()))
+                .next()
+                .flatMap(event -> Mono.error(new IllegalStateException(event.getMessage())))
+                .then();
+    }
+
     private void finish(Long projectId, ProjectQueue queue) {
         QueuedTask next;
         queue.lock.lock();

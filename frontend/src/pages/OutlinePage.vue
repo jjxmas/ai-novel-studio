@@ -19,15 +19,31 @@ const {
   loadOutline,
   loadLatestOutlineWorkflow,
   loadChapters,
+  loadModelConfigs,
   startOutlineWorkflow,
   commitOutlineWorkflow,
-  generateChapterOutlines,
+  continueChapterOutlines,
   updateOutline,
   confirmOutline,
 } = useNovelWorkspace();
 
 const activeLevel = ref('global');
 const workflowBusy = ref(false);
+const continuationBusy = ref(false);
+const continuationCount = ref<10 | 20 | 50>(10);
+const continuationInstruction = ref('');
+const continuationModelConfigId = ref<number | null>(null);
+
+const enabledModels = computed(() => state.modelConfigs.filter((model) => model.enabled));
+const lastChapterNo = computed(() => Math.max(0, ...state.chapters.map((chapter) => chapter.chapterNo ?? 0)));
+const continuationStartChapterNo = computed(() => lastChapterNo.value + 1);
+const continuationEndChapterNo = computed(() => lastChapterNo.value + continuationCount.value);
+const continuationProgressText = computed(() => {
+  if (!continuationBusy.value) {
+    return `将追加第 ${continuationStartChapterNo.value}-${continuationEndChapterNo.value} 章，已有章节不会被覆盖。`;
+  }
+  return `正在生成第 ${continuationStartChapterNo.value}-${continuationEndChapterNo.value} 章，共 ${Math.ceil(continuationCount.value / 10)} 批。`;
+});
 
 const outlineWorkflowStatusText = computed(() => {
   switch (state.outlineWorkflow?.status) {
@@ -83,8 +99,22 @@ function saveOutline() {
   }
 }
 
-async function submitGenerateChapterOutlines() {
-  await generateChapterOutlines();
+async function submitContinueChapterOutlines() {
+  if (continuationModelConfigId.value == null) {
+    state.lastMessage = '请选择用于续写大纲的模型。';
+    return;
+  }
+  continuationBusy.value = true;
+  try {
+    await continueChapterOutlines(
+      continuationCount.value,
+      continuationModelConfigId.value,
+      continuationInstruction.value,
+    );
+    continuationInstruction.value = '';
+  } finally {
+    continuationBusy.value = false;
+  }
 }
 
 async function withWorkflow(action: () => Promise<unknown>) {
@@ -108,7 +138,18 @@ onMounted(() => {
   void loadSettingLibrary().catch(() => undefined);
   void loadOutline().catch(() => undefined);
   void loadLatestOutlineWorkflow().catch(() => undefined);
+  void loadModelConfigs().catch(() => undefined);
 });
+
+watch(enabledModels, (models) => {
+  if (models.length === 0) {
+    continuationModelConfigId.value = null;
+    return;
+  }
+  if (!models.some((model) => model.id === continuationModelConfigId.value)) {
+    continuationModelConfigId.value = (models.find((model) => model.defaultModel) ?? models[0]).id;
+  }
+}, { immediate: true });
 
 watch(activeLevel, (level) => {
   if (level === 'chapter') {
@@ -120,22 +161,8 @@ watch(activeLevel, (level) => {
 <template>
   <PageShell
     title="大纲页"
-    description="第二版先实现全局大纲生成、编辑和确认，确认后解锁章节生成。"
+    description="从全局结构持续推进到可写作的章节计划。"
   >
-    <template #actions>
-      <div class="toolbar">
-        <button
-          v-if="activeLevel === 'chapter'"
-          class="toolbar__button"
-          type="button"
-          :disabled="!activeProject || !canGenerateChapters"
-          @click="submitGenerateChapterOutlines"
-        >
-          生成章节大纲
-        </button>
-      </div>
-    </template>
-
     <div v-if="!activeProject" class="empty-state">
       <div class="empty-state__title">请先选择作品</div>
       <p class="empty-state__description">回到工作台选择作品后，再生成和确认大纲。</p>
@@ -275,9 +302,49 @@ watch(activeLevel, (level) => {
 
       <section v-else-if="activeLevel === 'chapter'" class="card">
         <div class="card__title">章节大纲</div>
+        <div v-if="canGenerateChapters" class="stack continuation-controls">
+          <div class="form-grid">
+            <label class="field">
+              <span>追加数量</span>
+              <select v-model.number="continuationCount" :disabled="continuationBusy">
+                <option :value="10">10 章</option>
+                <option :value="20">20 章</option>
+                <option :value="50">50 章</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>生成模型</span>
+              <select v-model.number="continuationModelConfigId" :disabled="continuationBusy || enabledModels.length === 0">
+                <option v-for="model in enabledModels" :key="model.id" :value="model.id">
+                  {{ model.displayName }}
+                </option>
+              </select>
+            </label>
+            <label class="field field--full">
+              <span>补充要求</span>
+              <textarea
+                v-model="continuationInstruction"
+                rows="3"
+                placeholder="例如：继续第一卷中段，提高反派压力。"
+                :disabled="continuationBusy"
+              ></textarea>
+            </label>
+          </div>
+          <div class="card__row">
+            <p class="helper-text" aria-live="polite">{{ continuationProgressText }}</p>
+            <button
+              class="toolbar__button"
+              type="button"
+              :disabled="continuationBusy || continuationModelConfigId == null"
+              @click="submitContinueChapterOutlines"
+            >
+              {{ continuationBusy ? '正在追加…' : '继续生成章节大纲' }}
+            </button>
+          </div>
+        </div>
         <div v-if="state.chapters.length === 0" class="empty-state">
           <div class="empty-state__title">尚未生成章节大纲</div>
-          <p class="empty-state__description">确认全局大纲后，可以在这里生成章节大纲。</p>
+          <p class="empty-state__description">首次追加将从第 1 章开始。</p>
         </div>
         <div v-else class="stack">
           <article v-for="chapter in state.chapters" :key="chapter.id" class="list-item">
@@ -330,3 +397,11 @@ watch(activeLevel, (level) => {
     </div>
   </PageShell>
 </template>
+
+<style scoped>
+.continuation-controls {
+  margin-bottom: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #e5e7eb;
+}
+</style>

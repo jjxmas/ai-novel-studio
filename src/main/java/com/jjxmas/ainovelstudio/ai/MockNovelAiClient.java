@@ -1,5 +1,6 @@
 package com.jjxmas.ainovelstudio.ai;
 
+import com.jjxmas.ainovelstudio.common.util.JsonUtils;
 import java.util.Map;
 import java.util.ArrayList;
 import java.util.List;
@@ -44,6 +45,9 @@ public class MockNovelAiClient implements NovelAiClient {
             return """
                     {"globalOutline":{"title":"全局大纲","content":"【主线目标】林默从一个只想保住普通生活的小人物，被残缺玉牌推入隐藏秩序。他的长期目标不是单纯变强，而是在普通社会、夜巡司规则和赤曜会资源垄断之间找到能保护身边人的位置。\\n\\n【长期矛盾】故事核心矛盾是自由选择与秩序控制。夜巡司代表有边界的秩序，赤曜会代表资源垄断和强者逻辑，旧档案馆则保存被压下去的历史真相。林默每向前一步，都要在安全、代价和真相之间取舍。\\n\\n【分卷节奏】第一卷以玉牌入局为核心，完成规则认知、势力初见和主角主动入局；第二卷扩展黑曜集市和资源体系，让主角面对更复杂的利益交换；第三卷转向旧史回声，揭开玉牌、名册和档案馆之间的历史关系，并把冲突从城市局部推向更大秩序。\\n\\n【主角成长】林默前期谨慎、防御、逃避风险，中期学会组建临时同盟，后期必须主动承担选择后果。他的成长重点不是获得无代价能力，而是理解每次力量使用都会改变自己与他人的关系。\\n\\n【伏笔回收】残缺玉牌、夜巡名册、旧档案馆禁区、黑曜集市契约和回息药依赖都会分阶段回收。前期只揭示现象，中期揭示规则，后期揭示规则背后的制定者与历史代价。\\n\\n【写作约束】每章必须有明确行动目标、现实阻碍、设定代价和章末牵引。避免只讲设定；设定必须通过追捕、交易、登记、失窃、救援等具体事件进入剧情。"},"volumes":[{"volumeNo":1,"title":"第一卷 玉牌入局","summary":"主角发现玉牌并接触夜巡司、赤曜会和旧档案馆。","goal":"建立主角目标、能力代价和第一组核心关系。","estimatedWordCount":120000},{"volumeNo":2,"title":"第二卷 黑曜集市","summary":"主角进入更复杂的资源交易和势力冲突。","goal":"扩大地图与资源体系，形成长期对手。","estimatedWordCount":160000},{"volumeNo":3,"title":"第三卷 旧史回声","summary":"旧档案馆记录揭开传承真相。","goal":"回收前期伏笔并打开更大的历史冲突。","estimatedWordCount":180000}],"arcs":[{"volumeNo":1,"arcNo":1,"title":"玉牌出现","summary":"林默发现玉牌并被赤曜会追踪。","goal":"让主角意识到普通生活已无法完全保住。","conflict":"主角想逃离异常，但对手不断逼近。","estimatedChapterCount":8}],"chapters":[{"chapterNo":1,"volumeNo":1,"arcNo":1,"title":"第1章 旧物里的裂纹","outline":"林默维修旧物时发现残缺玉牌，玉牌引发短暂异常。结尾赤曜会的人注意到线索。","scenePlan":["维修旧物","玉牌异常","陌生人追踪"]},{"chapterNo":2,"volumeNo":1,"arcNo":1,"title":"第2章 夜里的来客","outline":"林默试图确认异常来源，却被顾沉派来的人试探。结尾苏晚出现提醒他不要报警。","scenePlan":["调查异常","遭遇试探","苏晚提醒"]},{"chapterNo":3,"volumeNo":1,"arcNo":1,"title":"第3章 第一次代价","outline":"主角被迫使用玉牌能力脱身，同时付出记忆模糊的代价。结尾夜巡司名册出现他的名字。","scenePlan":["追捕升级","能力触发","名册出现"]},{"chapterNo":4,"volumeNo":1,"arcNo":1,"title":"第4章 档案馆的门","outline":"苏晚带林默进入旧档案馆，解释城市隐藏秩序。结尾禁区门锁自行打开。","scenePlan":["进入档案馆","解释规则","禁区开启"]},{"chapterNo":5,"volumeNo":1,"arcNo":1,"title":"第5章 登记","outline":"夜巡司要求林默登记，林默发现登记意味着被纳入控制。结尾赤曜会提出交易。","scenePlan":["夜巡司登记","规则压力","赤曜会交易"]},{"chapterNo":6,"volumeNo":1,"arcNo":1,"title":"第6章 黑曜邀请函","outline":"林默为了查清玉牌来源，决定进入黑曜集市。结尾邀请函上出现他的真实姓名。","scenePlan":["权衡选择","取得邀请函","姓名显现"]},{"chapterNo":7,"volumeNo":1,"arcNo":1,"title":"第7章 集市规矩","outline":"主角初入黑曜集市，见到资源交易和代价守恒规则。结尾顾沉现身。","scenePlan":["进入集市","观察交易","顾沉现身"]},{"chapterNo":8,"volumeNo":1,"arcNo":1,"title":"第8章 名册失窃","outline":"集市冲突中夜巡名册失窃，林默被怀疑牵涉其中。结尾他决定主动查清真相。","scenePlan":["集市冲突","名册失窃","主动入局"]}]}
                     """;
+        }
+        if (command.getTaskType() == AiTaskType.CHAPTER_OUTLINE_CONTINUATION) {
+            return mockChapterOutlineContinuation(command);
         }
         if (command.getTaskType() == AiTaskType.CHAPTER_SUMMARY) {
             return """
@@ -126,5 +130,29 @@ public class MockNovelAiClient implements NovelAiClient {
                 他尝试用已有经验解决问题，但对手或环境给出新的压力，让冲突继续升级。
                 章节结尾保留一个新的选择或线索，推动下一章继续阅读。
                 """;
+    }
+
+    private String mockChapterOutlineContinuation(AiGenerateCommand command) {
+        Map<?, ?> context = command.getContext() instanceof Map<?, ?> map ? map : Map.of();
+        int startChapterNo = numberValue(context.get("startChapterNo"), 1);
+        int count = numberValue(context.get("count"), 10);
+        List<Map<String, Object>> chapters = new ArrayList<>();
+        for (int chapterNo = startChapterNo; chapterNo < startChapterNo + count; chapterNo++) {
+            chapters.add(Map.of(
+                    "chapterNo", chapterNo,
+                    "volumeNo", 1,
+                    "arcNo", 1,
+                    "title", "第" + chapterNo + "章 延续的线索",
+                    "outline", "承接上一章的行动结果，主角遭遇新的阻碍并推进长期冲突，结尾留下下一章线索。",
+                    "scenePlan", List.of("承接上一章", "冲突升级", "结尾钩子")));
+        }
+        return JsonUtils.toJson(Map.of(
+                "newVolumes", List.of(),
+                "newArcs", List.of(),
+                "chapters", chapters));
+    }
+
+    private int numberValue(Object value, int defaultValue) {
+        return value instanceof Number number ? number.intValue() : defaultValue;
     }
 }

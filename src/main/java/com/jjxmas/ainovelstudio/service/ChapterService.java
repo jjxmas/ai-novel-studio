@@ -2,6 +2,7 @@ package com.jjxmas.ainovelstudio.service;
 
 import com.jjxmas.ainovelstudio.pojo.dto.ChapterContentUpdateRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.ChapterGenerateRequest;
+import com.jjxmas.ainovelstudio.pojo.dto.ChapterGenerationResult;
 import com.jjxmas.ainovelstudio.pojo.dto.ChapterResponse;
 import com.jjxmas.ainovelstudio.pojo.dto.ChapterRewriteRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.ChapterStreamEvent;
@@ -15,6 +16,8 @@ public interface ChapterService {
     void confirmChapterOutline(Long chapterId);
 
     ChapterResponse generateChapter(ChapterGenerateRequest request);
+
+    ChapterGenerationResult generateChapterForBatch(ChapterGenerateRequest request);
 
     Flux<ChapterStreamEvent> streamGenerateChapter(ChapterGenerateRequest request);
 

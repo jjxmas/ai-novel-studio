@@ -13,6 +13,7 @@ import com.jjxmas.ainovelstudio.mapper.ProjectMapper;
 import com.jjxmas.ainovelstudio.pojo.dto.ChapterContentUpdateRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.ChapterContext;
 import com.jjxmas.ainovelstudio.pojo.dto.ChapterGenerateRequest;
+import com.jjxmas.ainovelstudio.pojo.dto.ChapterGenerationResult;
 import com.jjxmas.ainovelstudio.pojo.dto.ChapterResponse;
 import com.jjxmas.ainovelstudio.pojo.dto.ChapterRewriteRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.ChapterStreamEvent;
@@ -141,6 +142,51 @@ public class ChapterServiceImpl extends ServiceImpl<ChapterMapper, Chapter> impl
                 jobId);
         scheduleChapterPostProcess(chapter.getId(), request.getModelConfigId(), null, null);
         return chapterConverter.toResponse(chapter);
+    }
+
+    @Override
+    public ChapterGenerationResult generateChapterForBatch(ChapterGenerateRequest request) {
+        PreparedChapterGeneration prepared = prepareChapterGeneration(request);
+        AiGenerateResult result = aiOrchestratorService.generateChapter(request.getModelConfigId(), prepared.context());
+        String content = result == null ? "" : blankToEmpty(result.getContent());
+        if (result == null || Boolean.FALSE.equals(result.getSuccess()) || content.isBlank()) {
+            throw new BusinessException(ErrorCode.AI_TASK_UNAVAILABLE, "模型未返回有效的章节正文");
+        }
+        PersistedChapterGeneration persisted = transactionTemplate.execute(status -> {
+            Chapter chapter = prepared.chapter();
+            chapter.setTitle(prepared.title())
+                    .setOutline(prepared.outline())
+                    .setContent(content)
+                    .setWordCount(countWords(content))
+                    .setStatus("drafted");
+            updateById(chapter);
+            Map<String, Object> snapshot = chapterSnapshot(chapter);
+            Long jobId = generationJobService.recordFinishedJob(
+                    chapter.getProjectId(),
+                    "chapter_generation",
+                    "chapter",
+                    chapter.getId(),
+                    request.getModelConfigId(),
+                    generationInput(prepared.title(), prepared.outline(), chapterContextAssembler.asLogMap(prepared.context())),
+                    generationOutput(snapshot, result));
+            versionService.recordVersion(
+                    chapter.getProjectId(),
+                    "chapter",
+                    chapter.getId(),
+                    snapshot,
+                    "ai_generate",
+                    "AI batch-generated chapter content",
+                    request.getModelConfigId(),
+                    jobId);
+            return new PersistedChapterGeneration(chapter, jobId);
+        });
+        if (persisted == null) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "章节正文保存失败");
+        }
+        chapterPostProcessService.refreshChapter(persisted.chapter().getId(), request.getModelConfigId());
+        return new ChapterGenerationResult(
+                chapterConverter.toResponse(persisted.chapter()),
+                persisted.generationJobId());
     }
 
     @Override
@@ -386,6 +432,9 @@ public class ChapterServiceImpl extends ServiceImpl<ChapterMapper, Chapter> impl
             String title,
             String outline,
             ChapterContext context) {
+    }
+
+    private record PersistedChapterGeneration(Chapter chapter, Long generationJobId) {
     }
 
     private record PreparedChapterRewrite(

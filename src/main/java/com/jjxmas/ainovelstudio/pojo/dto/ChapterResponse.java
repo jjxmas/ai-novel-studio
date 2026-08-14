@@ -1,5 +1,6 @@
 package com.jjxmas.ainovelstudio.pojo.dto;
 
+import java.util.List;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -13,11 +14,15 @@ public class ChapterResponse {
 
     private Long id;
 
+    private Long projectId;
+
     private Integer chapterNo;
 
     private String title;
 
     private String outline;
+
+    private List<String> scenePlan;
 
     private String content;
 
@@ -27,4 +32,3 @@ public class ChapterResponse {
 
     private Boolean outlineConfirmed;
 }
-

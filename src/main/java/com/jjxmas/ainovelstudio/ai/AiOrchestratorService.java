@@ -83,6 +83,17 @@ public class AiOrchestratorService {
                 .build());
     }
 
+    public AiGenerateResult continueChapterOutline(Long modelConfigId, Map<String, Object> context) {
+        return novelAiClient.generate(AiGenerateCommand.builder()
+                .modelConfigId(modelConfigId)
+                .taskType(AiTaskType.CHAPTER_OUTLINE_CONTINUATION)
+                .systemPrompt(promptTemplateService.systemPrompt(AiTaskType.CHAPTER_OUTLINE_CONTINUATION))
+                .userPrompt(promptTemplateService.chapterOutlineContinuationPrompt(context))
+                .context(context)
+                .temperature(0.55)
+                .build());
+    }
+
     public AiGenerateResult evaluateIdea(Long modelConfigId, Map<String, Object> context, Map<String, Object> idea) {
         return novelAiClient.generate(AiGenerateCommand.builder()
                 .modelConfigId(modelConfigId)

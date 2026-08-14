@@ -432,8 +432,51 @@ export interface Chapter {
   chapterNo?: number;
   title: string;
   outline: string;
+  scenePlan?: string[];
   content: string;
   status: 'outline_ready' | 'content_ready' | 'edited';
+}
+
+export interface ChapterOutlineContinueRequest {
+  count: 10 | 20 | 50;
+  modelConfigId?: number;
+  instruction?: string;
+}
+
+export interface ChapterGenerationBatchCreateRequest {
+  startChapterNo: number;
+  count: number;
+  modelConfigId?: number;
+  skipExistingContent: boolean;
+  instruction?: string;
+}
+
+export interface ChapterGenerationBatchItem {
+  id: number;
+  chapterId: number;
+  chapterNo: number;
+  status: 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped' | 'cancelled' | string;
+  attemptCount: number;
+  generationJobId?: number | null;
+  errorMessage?: string | null;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+}
+
+export interface ChapterGenerationBatch {
+  batchId: number;
+  projectId: number;
+  status: 'queued' | 'running' | 'paused' | 'cancel_requested' | 'cancelled' | 'completed' | 'failed' | 'partial_failed' | string;
+  totalCount: number;
+  pendingCount: number;
+  runningCount: number;
+  succeededCount: number;
+  failedCount: number;
+  skippedCount: number;
+  errorMessage?: string | null;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  items: ChapterGenerationBatchItem[];
 }
 
 export interface ChapterSummary {
