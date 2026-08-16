@@ -66,6 +66,27 @@ public class ProjectServiceImpl extends ServiceImpl<ProjectMapper, Project> impl
     }
 
     /**
+     * 删除作品，关联数据由数据库外键级联清理。
+     */
+    @Override
+    @Transactional
+    @CacheEvict(
+            value = {
+                    "projects",
+                    "chapterContextProfiles",
+                    "chapterContextSettings",
+                    "chapterContextOutlines",
+                    "chapterContextMemoryStacks",
+                    "settingLibraries",
+                    "globalOutlines"
+            },
+            key = "#projectId")
+    public void deleteProject(Long projectId) {
+        requireProject(projectId);
+        removeById(projectId);
+    }
+
+    /**
      * 查询指定项目并转换为接口响应。
      */
     @Override

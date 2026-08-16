@@ -139,7 +139,7 @@ const tomatoGenreTagGroups = [
 
 const form = reactive({
   title: '',
-  genres: '修仙、都市',
+  genres: '',
   projectBrief: '',
   targetWordCountMin: 1200000,
   targetWordCountMax: 2000000,

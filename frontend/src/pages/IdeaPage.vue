@@ -25,8 +25,7 @@ const generationForm = reactive({
 const rewriteSuggestion = ref('');
 
 const activeIdea = computed(() => {
-  const fallback = state.ideas[0] ?? null;
-  return state.ideas.find((idea) => idea.id === activeIdeaId.value) ?? fallback;
+  return state.ideas.find((idea) => idea.id === activeIdeaId.value) ?? null;
 });
 
 const evaluationMetrics = computed(() => {
@@ -47,23 +46,17 @@ watch(
   () => {
     if (!activeIdea.value) {
       activeIdeaId.value = null;
-      return;
     }
-    activeIdeaId.value = activeIdea.value.id;
   },
 );
 
 onMounted(() => {
-  void loadIdeas()
-    .then((ideas) => {
-      activeIdeaId.value = ideas[0]?.id ?? null;
-    })
-    .catch(() => undefined);
+  void loadIdeas().catch(() => undefined);
 });
 
 async function submitGenerate() {
   const ideas = await generateIdeas(generationForm.suggestion, generationForm.ideaCount);
-  activeIdeaId.value = ideas[0]?.id ?? activeIdeaId.value;
+  activeIdeaId.value = ideas[0]?.id ?? null;
 }
 
 async function submitRewrite() {
@@ -113,12 +106,19 @@ function formatRiskLevel(riskLevel?: string | null) {
 function riskBadgeClass(riskLevel?: string | null) {
   return riskLevel === 'high' ? 'badge--warn' : '';
 }
+
+function sellingPoints(text: string) {
+  return text
+    .split(/[;；\n]+/)
+    .map((item) => item.trim().replace(/^卖点\s*\d+[.。:：、]?\s*/, ''))
+    .filter(Boolean);
+}
 </script>
 
 <template>
   <PageShell
     title="创意页"
-    description="生成多个创意方案，在左侧比较候选项，在右侧同时查看创意内容与 AI 评价。"
+    description="生成多个创意方案，先比较列表，点击候选项后进入详情。"
   >
     <template #actions>
       <div class="toolbar">
@@ -143,39 +143,43 @@ function riskBadgeClass(riskLevel?: string | null) {
       <p class="empty-state__description">回到工作台选择作品后，再生成和管理创意。</p>
     </div>
 
-    <div v-else class="grid grid--two">
-      <section class="card">
-        <div class="card__title">创意列表</div>
-        <div v-if="state.ideas.length === 0" class="empty-state">
-          <div class="empty-state__title">暂无创意</div>
-          <p class="empty-state__description">点击生成创意后，候选方案会显示在这里。</p>
-        </div>
-        <div v-else class="stack">
-          <article
-            v-for="idea in state.ideas"
-            :key="idea.id"
-            class="list-item list-item--clickable"
-            :class="{ 'card--selected': idea.id === activeIdea?.id }"
-            @click="activeIdeaId = idea.id"
-          >
-            <div>
-              <div class="list-item__title">{{ idea.title }}</div>
-              <div class="list-item__text">{{ idea.estimatedWords }} · 长篇潜力 {{ idea.score }} 分</div>
-            </div>
-            <div class="idea-list-meta">
-              <span v-if="idea.riskLevel" class="badge" :class="riskBadgeClass(idea.riskLevel)">
-                {{ formatRiskLevel(idea.riskLevel) }}
-              </span>
-              <span class="badge" :class="{ 'badge--ok': idea.selected }">
-                {{ idea.selected ? '已选定' : '候选' }}
-              </span>
-            </div>
-          </article>
-        </div>
-      </section>
+    <section v-else-if="!activeIdea" class="card">
+      <div class="card__title">创意列表</div>
+      <div v-if="state.ideas.length === 0" class="empty-state">
+        <div class="empty-state__title">暂无创意</div>
+        <p class="empty-state__description">点击生成创意后，候选方案会显示在这里。</p>
+      </div>
+      <div v-else class="stack">
+        <article
+          v-for="idea in state.ideas"
+          :key="idea.id"
+          class="list-item list-item--clickable"
+          @click="activeIdeaId = idea.id"
+        >
+          <div>
+            <div class="list-item__title">{{ idea.title }}</div>
+            <div class="list-item__text">{{ idea.estimatedWords }} · 长篇潜力 {{ idea.score }} 分</div>
+          </div>
+          <div class="idea-list-meta">
+            <span v-if="idea.riskLevel" class="badge" :class="riskBadgeClass(idea.riskLevel)">
+              {{ formatRiskLevel(idea.riskLevel) }}
+            </span>
+            <span class="badge" :class="{ 'badge--ok': idea.selected }">
+              {{ idea.selected ? '已选定' : '候选' }}
+            </span>
+          </div>
+        </article>
+      </div>
+    </section>
 
+    <div v-else class="idea-detail-layout">
       <section class="card">
-        <div class="card__title">创意详情</div>
+        <div class="card__row">
+          <div class="card__title">创意详情</div>
+          <button class="toolbar__button toolbar__button--ghost" type="button" @click="activeIdeaId = null">
+            返回列表
+          </button>
+        </div>
         <div v-if="!activeIdea" class="empty-state">
           <div class="empty-state__title">尚未选择创意</div>
           <p class="empty-state__description">从左侧列表选择一个创意，即可查看内容和评价。</p>
@@ -203,7 +207,10 @@ function riskBadgeClass(riskLevel?: string | null) {
             </div>
             <div class="metric">
               <div class="metric__label">卖点</div>
-              <div class="metric__value metric__value--text">{{ activeIdea.sellingPoint || '待补充' }}</div>
+              <ol v-if="sellingPoints(activeIdea.sellingPoint).length" class="plain-list">
+                <li v-for="item in sellingPoints(activeIdea.sellingPoint)" :key="item">{{ item }}</li>
+              </ol>
+              <div v-else class="metric__value metric__value--text">待补充</div>
             </div>
           </div>
 
@@ -255,11 +262,11 @@ function riskBadgeClass(riskLevel?: string | null) {
 
           <label class="field">
             <span>世界观</span>
-            <textarea v-model="activeIdea.worldview" rows="4" @blur="updateIdea(activeIdea)"></textarea>
+            <textarea v-model="activeIdea.worldview" class="idea-textarea" rows="8" @blur="updateIdea(activeIdea)"></textarea>
           </label>
           <label class="field">
             <span>主线冲突</span>
-            <textarea v-model="activeIdea.mainConflict" rows="4" @blur="updateIdea(activeIdea)"></textarea>
+            <textarea v-model="activeIdea.mainConflict" class="idea-textarea" rows="8" @blur="updateIdea(activeIdea)"></textarea>
           </label>
           <label class="field">
             <span>创意正文</span>
@@ -294,3 +301,14 @@ function riskBadgeClass(riskLevel?: string | null) {
     </div>
   </PageShell>
 </template>
+
+<style scoped>
+.idea-detail-layout {
+  display: grid;
+  gap: 16px;
+}
+
+.idea-textarea {
+  min-height: 180px;
+}
+</style>

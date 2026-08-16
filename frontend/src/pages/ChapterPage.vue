@@ -19,6 +19,9 @@ const {
 } = useNovelWorkspace();
 
 const activeChapterId = ref<number | null>(null);
+const chapterSearch = ref('');
+const chapterPage = ref(1);
+const chapterPageSize = ref(20);
 const rewriteSuggestion = ref('');
 const isGeneratingContent = ref(false);
 const batchStartChapterNo = ref(1);
@@ -80,6 +83,25 @@ function batchItemStatusText(status: string) {
 const activeChapter = computed(() => {
   const fallback = state.chapters[0] ?? null;
   return state.chapters.find((chapter) => chapter.id === activeChapterId.value) ?? fallback;
+});
+
+const filteredChapters = computed(() => {
+  const keyword = chapterSearch.value.trim().toLowerCase();
+  if (!keyword) {
+    return state.chapters;
+  }
+  return state.chapters.filter((chapter) => {
+    const chapterNo = String(chapter.chapterNo ?? '');
+    return chapterNo.includes(keyword)
+      || chapter.title.toLowerCase().includes(keyword)
+      || chapter.outline.toLowerCase().includes(keyword);
+  });
+});
+
+const chapterTotalPages = computed(() => Math.max(1, Math.ceil(filteredChapters.value.length / chapterPageSize.value)));
+const pagedChapters = computed(() => {
+  const start = (chapterPage.value - 1) * chapterPageSize.value;
+  return filteredChapters.value.slice(start, start + chapterPageSize.value);
 });
 
 const activeChapterSummary = computed(() => {
@@ -300,6 +322,16 @@ watch(() => state.chapters, (chapters) => {
   }
 }, { deep: true, immediate: true });
 
+watch([chapterSearch, chapterPageSize], () => {
+  chapterPage.value = 1;
+});
+
+watch(chapterTotalPages, (totalPages) => {
+  if (chapterPage.value > totalPages) {
+    chapterPage.value = totalPages;
+  }
+});
+
 onUnmounted(stopBatchPolling);
 </script>
 
@@ -449,12 +481,32 @@ onUnmounted(stopBatchPolling);
           <ul class="tag-list">
             <li v-for="item in chapterBlocks" :key="item" class="tag-list__item">{{ item }}</li>
           </ul>
+          <div class="chapter-list-controls">
+            <input
+              v-model="chapterSearch"
+              class="toolbar__input"
+              type="text"
+              placeholder="搜索章节号、标题或大纲"
+            />
+            <label class="field">
+              <span>每页</span>
+              <select v-model.number="chapterPageSize">
+                <option :value="10">10 章</option>
+                <option :value="20">20 章</option>
+                <option :value="50">50 章</option>
+              </select>
+            </label>
+          </div>
           <div v-if="state.chapters.length === 0" class="empty-state">
             <div class="empty-state__title">尚未生成章节大纲</div>
             <p class="empty-state__description">请到大纲页生成章节大纲后，再回到这里写正文。</p>
           </div>
+          <div v-else-if="filteredChapters.length === 0" class="empty-state">
+            <div class="empty-state__title">没有匹配章节</div>
+            <p class="empty-state__description">换一个章节号、标题或关键词再试。</p>
+          </div>
           <article
-            v-for="chapter in state.chapters"
+            v-for="chapter in pagedChapters"
             :key="chapter.id"
             class="list-item list-item--clickable"
             :class="{ 'card--selected': chapter.id === activeChapter?.id }"
@@ -466,6 +518,25 @@ onUnmounted(stopBatchPolling);
             </div>
             <span class="badge">{{ chapter.status === 'outline_ready' ? '待正文' : '有正文' }}</span>
           </article>
+          <div v-if="filteredChapters.length > chapterPageSize" class="pagination">
+            <button
+              class="toolbar__button toolbar__button--ghost toolbar__button--small"
+              type="button"
+              :disabled="chapterPage === 1"
+              @click="chapterPage -= 1"
+            >
+              上一页
+            </button>
+            <span class="helper-text">第 {{ chapterPage }} / {{ chapterTotalPages }} 页，共 {{ filteredChapters.length }} 章</span>
+            <button
+              class="toolbar__button toolbar__button--ghost toolbar__button--small"
+              type="button"
+              :disabled="chapterPage === chapterTotalPages"
+              @click="chapterPage += 1"
+            >
+              下一页
+            </button>
+          </div>
         </div>
       </section>
 
@@ -598,6 +669,21 @@ onUnmounted(stopBatchPolling);
   font-weight: 600;
 }
 
+.chapter-list-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px;
+  gap: 12px;
+  align-items: end;
+}
+
+.pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .batch-progress {
   margin-top: 16px;
 }
@@ -654,7 +740,8 @@ onUnmounted(stopBatchPolling);
 
 @media (max-width: 720px) {
   .integrity-controls,
-  .dirty-row {
+  .dirty-row,
+  .chapter-list-controls {
     grid-template-columns: 1fr;
   }
 

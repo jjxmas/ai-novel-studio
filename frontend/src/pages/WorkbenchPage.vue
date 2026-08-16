@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { onMounted, reactive, watch } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { RouterLink } from 'vue-router';
 
 import PageShell from '@/components/PageShell.vue';
 import { useNovelWorkspace } from '@/composables/useNovelWorkspace';
 import type { ProjectUpdateRequest } from '@/api/types';
+import { tomatoGenreTagGroups } from '@/constants/genreOptions';
 
-const { state, activeProject, loadProjects, selectProject, loadVersions, updateProject } = useNovelWorkspace();
+const { state, activeProject, loadProjects, selectProject, loadVersions, updateProject, deleteProject } = useNovelWorkspace();
 
 const form = reactive({
   title: '',
@@ -18,6 +19,14 @@ const form = reactive({
   platformTarget: '',
   stylePreference: '',
 });
+const selectedGenreTag = ref('');
+
+const selectedGenres = computed(() =>
+  form.genres
+    .split(/[、,，]/)
+    .map((item) => item.trim())
+    .filter(Boolean),
+);
 
 const stageLabels = {
   idea: '创意阶段',
@@ -62,6 +71,22 @@ function fillForm() {
   form.stylePreference = activeProject.value.stylePreference;
 }
 
+function setGenres(genres: string[]) {
+  form.genres = Array.from(new Set(genres)).join('、');
+}
+
+function addSelectedGenre() {
+  if (!selectedGenreTag.value) {
+    return;
+  }
+  setGenres([...selectedGenres.value, selectedGenreTag.value]);
+  selectedGenreTag.value = '';
+}
+
+function removeGenre(tag: string) {
+  setGenres(selectedGenres.value.filter((item) => item !== tag));
+}
+
 async function submitProject() {
   if (!activeProject.value) {
     return;
@@ -85,6 +110,15 @@ async function submitProject() {
   }
   await updateProject(activeProject.value.id, payload);
   void loadVersions().catch(() => undefined);
+}
+
+async function submitDeleteProject(projectId: number, title: string, event?: Event) {
+  event?.stopPropagation();
+  if (!window.confirm(`确定删除《${title}》吗？删除后作品、创意、大纲和章节都会一起移除。`)) {
+    return;
+  }
+  await deleteProject(projectId);
+  void loadProjects().catch(() => undefined);
 }
 
 watch(activeProject, fillForm);
@@ -127,7 +161,16 @@ onMounted(() => {
                 {{ item.genres.join(' + ') }} · {{ item.platformTarget }} · {{ item.updatedAt }}
               </div>
             </div>
-            <span class="badge">{{ stageLabels[item.stage] }}</span>
+            <div class="idea-list-meta">
+              <span class="badge">{{ stageLabels[item.stage] }}</span>
+              <button
+                class="toolbar__button toolbar__button--danger toolbar__button--small"
+                type="button"
+                @click="submitDeleteProject(item.id, item.title, $event)"
+              >
+                删除
+              </button>
+            </div>
           </article>
         </div>
       </section>
@@ -143,10 +186,28 @@ onMounted(() => {
             <span>作品名</span>
             <input v-model="form.title" type="text" />
           </label>
-          <label class="field">
+          <div class="field">
             <span>类型</span>
-            <input v-model="form.genres" type="text" placeholder="修仙、都市、悬疑" />
-          </label>
+            <select v-model="selectedGenreTag" @change="addSelectedGenre">
+              <option value="" disabled>选择番茄标签</option>
+              <optgroup v-for="group in tomatoGenreTagGroups" :key="group.name" :label="group.name">
+                <option v-for="tag in group.tags" :key="`${group.name}-${tag}`" :value="tag">
+                  {{ tag }}
+                </option>
+              </optgroup>
+            </select>
+            <div class="tag-list selected-genre-list" aria-label="已选择小说类型">
+              <button
+                v-for="tag in selectedGenres"
+                :key="tag"
+                class="tag-list__item tag-list__item--button"
+                type="button"
+                @click="removeGenre(tag)"
+              >
+                {{ tag }} ×
+              </button>
+            </div>
+          </div>
           <label class="field field--full">
             <span>模糊描述</span>
             <textarea v-model="form.projectBrief" rows="5"></textarea>

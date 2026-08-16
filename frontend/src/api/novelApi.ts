@@ -460,6 +460,7 @@ export const novelApi = {
   createProject: (payload: ProjectCreateRequest) => post<number>('/projects', payload),
   updateProject: (projectId: number, payload: ProjectUpdateRequest) =>
     patch<void>(`/projects/${projectId}`, payload),
+  deleteProject: (projectId: number) => del<void>(`/projects/${projectId}`),
 
   listModelConfigs: () => request<ModelConfig[]>('/model-configs'),
   createModelConfig: (payload: ModelConfigRequest) =>

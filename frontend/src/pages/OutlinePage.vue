@@ -27,7 +27,7 @@ const {
   confirmOutline,
 } = useNovelWorkspace();
 
-const activeLevel = ref('global');
+const activeLevel = ref<string | null>(null);
 const workflowBusy = ref(false);
 const continuationBusy = ref(false);
 const continuationCount = ref<10 | 20 | 50>(10);
@@ -168,48 +168,57 @@ watch(activeLevel, (level) => {
       <p class="empty-state__description">回到工作台选择作品后，再生成和确认大纲。</p>
     </div>
 
-    <div v-else class="grid grid--two">
-      <section class="card">
-        <div class="card__title">大纲层级</div>
-        <div class="stack">
-          <article
-            v-for="item in outlineLevels"
-            :key="item.key"
-            class="list-item list-item--clickable"
-            :class="{ 'card--selected': activeLevel === item.key }"
-            @click="activeLevel = item.key"
+    <section v-else-if="!activeLevel" class="card">
+      <div class="card__title">大纲层级</div>
+      <div class="stack">
+        <article
+          v-for="item in outlineLevels"
+          :key="item.key"
+          class="list-item list-item--clickable"
+          @click="activeLevel = item.key"
+        >
+          <div>
+            <div class="list-item__title">{{ item.title }}</div>
+            <div class="list-item__text">{{ item.hint }}</div>
+          </div>
+          <span
+            class="badge"
+            :class="{
+              'badge--ok':
+                (item.key === 'global' && state.outline?.confirmed)
+                || (item.key === 'volume' && outlineWorkflowVolumes.length > 0)
+                || (item.key === 'arc' && outlineWorkflowArcs.length > 0),
+              'badge--warn': (item.key === 'volume' && outlineWorkflowVolumes.length === 0) || (item.key === 'arc' && outlineWorkflowArcs.length === 0),
+            }"
           >
-            <div>
-              <div class="list-item__title">{{ item.title }}</div>
-              <div class="list-item__text">{{ item.hint }}</div>
-            </div>
-            <span
-              class="badge"
-              :class="{
-                'badge--ok':
-                  (item.key === 'global' && state.outline?.confirmed)
-                  || (item.key === 'volume' && outlineWorkflowVolumes.length > 0)
-                  || (item.key === 'arc' && outlineWorkflowArcs.length > 0),
-                'badge--warn': (item.key === 'volume' && outlineWorkflowVolumes.length === 0) || (item.key === 'arc' && outlineWorkflowArcs.length === 0),
-              }"
-            >
-              {{
-                item.key === 'global' && state.outline?.confirmed
-                  ? '已确认'
-                  : item.key === 'volume' && outlineWorkflowVolumes.length > 0
+            {{
+              item.key === 'global' && state.outline?.confirmed
+                ? '已确认'
+                : item.key === 'volume' && outlineWorkflowVolumes.length > 0
+                  ? '已生成'
+                  : item.key === 'arc' && outlineWorkflowArcs.length > 0
                     ? '已生成'
-                    : item.key === 'arc' && outlineWorkflowArcs.length > 0
-                      ? '已生成'
-                      : item.key === 'chapter' && state.chapters.length > 0
-                    ? '已生成'
-                    : item.key === 'volume' || item.key === 'arc'
-                      ? '预留'
-                      : '可操作'
-              }}
-            </span>
-          </article>
+                    : item.key === 'chapter' && state.chapters.length > 0
+                  ? '已生成'
+                  : item.key === 'volume' || item.key === 'arc'
+                    ? '预留'
+                    : '可操作'
+            }}
+          </span>
+        </article>
+      </div>
+    </section>
+
+    <div v-else class="outline-detail-layout">
+      <div class="card detail-header">
+        <div>
+          <div class="card__title">{{ outlineLevels.find((item) => item.key === activeLevel)?.title }}</div>
+          <p class="helper-text">{{ outlineLevels.find((item) => item.key === activeLevel)?.hint }}</p>
         </div>
-      </section>
+        <button class="toolbar__button toolbar__button--ghost" type="button" @click="activeLevel = null">
+          返回列表
+        </button>
+      </div>
 
       <section v-if="activeLevel === 'global'" class="card">
         <div class="stack">
@@ -403,5 +412,17 @@ watch(activeLevel, (level) => {
   margin-bottom: 16px;
   padding-bottom: 16px;
   border-bottom: 1px solid #e5e7eb;
+}
+
+.outline-detail-layout {
+  display: grid;
+  gap: 16px;
+}
+
+.detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
 }
 </style>

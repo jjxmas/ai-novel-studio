@@ -20,6 +20,11 @@ public interface ProjectService {
     void updateProject(Long projectId, ProjectCreateRequest request);
 
     /**
+     * 删除指定作品及其关联创作数据。
+     */
+    void deleteProject(Long projectId);
+
+    /**
      * 查询指定项目详情。
      */
     ProjectResponse getProject(Long projectId);

@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { RouterLink, useRoute } from 'vue-router';
 
 const route = useRoute();
+const sidebarCollapsed = ref(localStorage.getItem('sidebarCollapsed') === 'true');
 
 const currentTitle = computed(() => String(route.meta.title ?? '工作台'));
 const currentDescription = computed(() => String(route.meta.description ?? ''));
@@ -27,11 +28,23 @@ const isActive = (path: string) => {
 
   return route.path.startsWith(path);
 };
+
+watch(sidebarCollapsed, (collapsed) => {
+  localStorage.setItem('sidebarCollapsed', String(collapsed));
+});
 </script>
 
 <template>
-  <div class="app-shell">
-    <aside class="sidebar">
+  <div class="app-shell" :class="{ 'app-shell--sidebar-collapsed': sidebarCollapsed }">
+    <aside class="sidebar" :aria-hidden="sidebarCollapsed">
+      <button
+        class="sidebar-toggle"
+        type="button"
+        :aria-label="sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'"
+        @click="sidebarCollapsed = !sidebarCollapsed"
+      >
+        {{ sidebarCollapsed ? '>' : '<' }}
+      </button>
       <div class="brand">
         <div class="brand__title">AI 长篇小说工作台</div>
         <div class="brand__subtitle">Vue3 / Spring Boot / MySQL</div>
@@ -51,6 +64,16 @@ const isActive = (path: string) => {
         </RouterLink>
       </nav>
     </aside>
+
+    <button
+      v-if="sidebarCollapsed"
+      class="sidebar-restore"
+      type="button"
+      aria-label="展开侧边栏"
+      @click="sidebarCollapsed = false"
+    >
+      >
+    </button>
 
     <div class="content">
       <header class="topbar">

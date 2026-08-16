@@ -910,6 +910,19 @@ export function useNovelWorkspace() {
     addVersion('project', projectId, 'edit', '用户修改作品基础信息');
   }
 
+  async function deleteProject(projectId: number) {
+    await withFallback(
+      novelApi.deleteProject(projectId),
+      () => undefined,
+      '作品已删除',
+    );
+    state.projects = state.projects.filter((item) => item.id !== projectId);
+    if (state.activeProjectId === projectId) {
+      state.activeProjectId = state.projects[0]?.id ?? null;
+      resetProjectData();
+    }
+  }
+
   async function createModelConfig(payload: ModelConfigRequest) {
     const createdId = await withFallback(
       novelApi.createModelConfig(payload),
@@ -1600,6 +1613,7 @@ export function useNovelWorkspace() {
     loadVersions,
     createProject,
     updateProject,
+    deleteProject,
     loadModelConfigs,
     createModelConfig,
     updateModelConfig,
