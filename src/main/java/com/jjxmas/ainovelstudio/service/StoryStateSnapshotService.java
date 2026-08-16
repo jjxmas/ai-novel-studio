@@ -1,12 +1,15 @@
 package com.jjxmas.ainovelstudio.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.jjxmas.ainovelstudio.mapper.EntityRelationMapper;
 import com.jjxmas.ainovelstudio.mapper.EntityStateRecordMapper;
+import com.jjxmas.ainovelstudio.mapper.ChapterMapper;
 import com.jjxmas.ainovelstudio.mapper.OrganizationMapper;
 import com.jjxmas.ainovelstudio.mapper.StoryCharacterMapper;
 import com.jjxmas.ainovelstudio.mapper.StoryItemMapper;
 import com.jjxmas.ainovelstudio.mapper.StoryLocationMapper;
+import com.jjxmas.ainovelstudio.mapper.StoryEventMapper;
 import com.jjxmas.ainovelstudio.pojo.dto.ChapterContext;
 import com.jjxmas.ainovelstudio.pojo.entity.Chapter;
 import com.jjxmas.ainovelstudio.pojo.entity.EntityRelation;
@@ -15,6 +18,7 @@ import com.jjxmas.ainovelstudio.pojo.entity.Organization;
 import com.jjxmas.ainovelstudio.pojo.entity.StoryCharacter;
 import com.jjxmas.ainovelstudio.pojo.entity.StoryItem;
 import com.jjxmas.ainovelstudio.pojo.entity.StoryLocation;
+import com.jjxmas.ainovelstudio.pojo.entity.StoryEvent;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -40,6 +44,8 @@ public class StoryStateSnapshotService {
     private final OrganizationMapper organizationMapper;
     private final StoryLocationMapper storyLocationMapper;
     private final StoryItemMapper storyItemMapper;
+    private final ChapterMapper chapterMapper;
+    private final StoryEventMapper storyEventMapper;
     private final EntityRelationMapper entityRelationMapper;
     private final EntityStateRecordMapper entityStateRecordMapper;
 
@@ -48,12 +54,16 @@ public class StoryStateSnapshotService {
             OrganizationMapper organizationMapper,
             StoryLocationMapper storyLocationMapper,
             StoryItemMapper storyItemMapper,
+            ChapterMapper chapterMapper,
+            StoryEventMapper storyEventMapper,
             EntityRelationMapper entityRelationMapper,
             EntityStateRecordMapper entityStateRecordMapper) {
         this.storyCharacterMapper = storyCharacterMapper;
         this.organizationMapper = organizationMapper;
         this.storyLocationMapper = storyLocationMapper;
         this.storyItemMapper = storyItemMapper;
+        this.chapterMapper = chapterMapper;
+        this.storyEventMapper = storyEventMapper;
         this.entityRelationMapper = entityRelationMapper;
         this.entityStateRecordMapper = entityStateRecordMapper;
     }
@@ -69,14 +79,17 @@ public class StoryStateSnapshotService {
         List<Organization> organizations = selectOrganizations(chapter.getProjectId(), referenceText);
         List<StoryLocation> locations = selectLocations(chapter.getProjectId(), referenceText);
         List<StoryItem> items = selectItems(chapter.getProjectId(), referenceText);
+        Map<Long, Integer> visibleChapters = visibleChapters(chapter.getProjectId(), chapter.getChapterNo());
         List<EntityRelation> relations = selectRelations(
                 chapter.getProjectId(),
+                chapter.getChapterNo(),
                 characters,
                 organizations,
                 locations,
                 items);
         List<EntityStateRecord> stateRecords = selectStateRecords(
                 chapter.getProjectId(),
+                visibleChapters,
                 characters,
                 organizations,
                 locations,
@@ -147,6 +160,7 @@ public class StoryStateSnapshotService {
 
     private List<EntityRelation> selectRelations(
             Long projectId,
+            Integer chapterNo,
             List<StoryCharacter> characters,
             List<Organization> organizations,
             List<StoryLocation> locations,
@@ -159,21 +173,25 @@ public class StoryStateSnapshotService {
         if (characterIds.isEmpty() && organizationIds.isEmpty() && locationIds.isEmpty() && itemIds.isEmpty()) {
             return List.of();
         }
-        return entityRelationMapper.selectList(new LambdaQueryWrapper<EntityRelation>()
+        List<EntityRelation> candidates = entityRelationMapper.selectList(new LambdaQueryWrapper<EntityRelation>()
                 .eq(EntityRelation::getProjectId, projectId)
-                .eq(EntityRelation::getRelationStatus, "active")
                 .and(wrapper -> appendRelationEntityFilters(
                         wrapper,
                         characterIds,
                         organizationIds,
                         locationIds,
                         itemIds))
-                .orderByAsc(EntityRelation::getId)
-                .last("LIMIT " + MAX_RELATIONS));
+                .orderByAsc(EntityRelation::getId));
+        Map<Long, Integer> eventChapterNos = eventChapterNos(candidates);
+        return candidates.stream()
+                .filter(relation -> relationVisibleAt(relation, chapterNo, eventChapterNos))
+                .limit(MAX_RELATIONS)
+                .toList();
     }
 
     private List<EntityStateRecord> selectStateRecords(
             Long projectId,
+            Map<Long, Integer> visibleChapters,
             List<StoryCharacter> characters,
             List<Organization> organizations,
             List<StoryLocation> locations,
@@ -186,16 +204,110 @@ public class StoryStateSnapshotService {
         if (characterIds.isEmpty() && organizationIds.isEmpty() && locationIds.isEmpty() && itemIds.isEmpty()) {
             return List.of();
         }
-        return entityStateRecordMapper.selectList(new LambdaQueryWrapper<EntityStateRecord>()
+        List<EntityStateRecord> candidates = entityStateRecordMapper.selectList(new LambdaQueryWrapper<EntityStateRecord>()
                 .eq(EntityStateRecord::getProjectId, projectId)
+                .and(!visibleChapters.isEmpty(), wrapper -> wrapper
+                        .isNull(EntityStateRecord::getChapterId)
+                        .or()
+                        .in(EntityStateRecord::getChapterId, visibleChapters.keySet()))
                 .and(wrapper -> appendStateRecordEntityFilters(
                         wrapper,
                         characterIds,
                         organizationIds,
                         locationIds,
                         itemIds))
-                .orderByDesc(EntityStateRecord::getId)
-                .last("LIMIT " + MAX_STATE_RECORDS));
+                .orderByDesc(EntityStateRecord::getId));
+        Map<String, EntityStateRecord> latestByState = new LinkedHashMap<>();
+        candidates.stream()
+                .filter(record -> record.getChapterId() == null || visibleChapters.containsKey(record.getChapterId()))
+                .sorted((left, right) -> compareStateRecords(left, right, visibleChapters))
+                .forEach(record -> latestByState.putIfAbsent(stateKey(record), record));
+        return latestByState.values().stream().limit(MAX_STATE_RECORDS).toList();
+    }
+
+    private Map<Long, Integer> visibleChapters(Long projectId, Integer chapterNo) {
+        return chapterMapper.selectList(new QueryWrapper<Chapter>()
+                        .select("id", "chapter_no")
+                        .eq("project_id", projectId)
+                        .le(chapterNo != null, "chapter_no", chapterNo))
+                .stream()
+                .filter(item -> item.getId() != null && item.getChapterNo() != null)
+                .collect(Collectors.toMap(
+                        Chapter::getId,
+                        Chapter::getChapterNo,
+                        (left, right) -> left,
+                        LinkedHashMap::new));
+    }
+
+    private int compareStateRecords(
+            EntityStateRecord left,
+            EntityStateRecord right,
+            Map<Long, Integer> visibleChapters) {
+        int leftChapterNo = left.getChapterId() == null ? Integer.MIN_VALUE : visibleChapters.get(left.getChapterId());
+        int rightChapterNo = right.getChapterId() == null ? Integer.MIN_VALUE : visibleChapters.get(right.getChapterId());
+        int chapterComparison = Integer.compare(rightChapterNo, leftChapterNo);
+        if (chapterComparison != 0) {
+            return chapterComparison;
+        }
+        long leftId = left.getId() == null ? 0L : left.getId();
+        long rightId = right.getId() == null ? 0L : right.getId();
+        return Long.compare(rightId, leftId);
+    }
+
+    private Map<Long, Integer> eventChapterNos(List<EntityRelation> relations) {
+        Set<Long> eventIds = new LinkedHashSet<>();
+        relations.forEach(relation -> {
+            if (relation.getStartEventId() != null) {
+                eventIds.add(relation.getStartEventId());
+            }
+            if (relation.getEndEventId() != null) {
+                eventIds.add(relation.getEndEventId());
+            }
+        });
+        if (eventIds.isEmpty()) {
+            return Map.of();
+        }
+        List<StoryEvent> events = storyEventMapper.selectByIds(eventIds);
+        Set<Long> chapterIds = events.stream()
+                .map(StoryEvent::getChapterId)
+                .filter(id -> id != null)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        Map<Long, Integer> chapterNos = chapterIds.isEmpty()
+                ? Map.of()
+                : chapterMapper.selectByIds(chapterIds).stream()
+                        .collect(Collectors.toMap(Chapter::getId, Chapter::getChapterNo));
+        return events.stream()
+                .filter(event -> event.getChapterId() != null)
+                .filter(event -> chapterNos.containsKey(event.getChapterId()))
+                .collect(Collectors.toMap(StoryEvent::getId, event -> chapterNos.get(event.getChapterId())));
+    }
+
+    private boolean relationVisibleAt(
+            EntityRelation relation,
+            Integer chapterNo,
+            Map<Long, Integer> eventChapterNos) {
+        if (chapterNo == null) {
+            return "active".equalsIgnoreCase(blankToEmpty(relation.getRelationStatus()));
+        }
+        Integer startChapterNo = relation.getStartChapterNo() == null
+                ? eventChapterNos.get(relation.getStartEventId())
+                : relation.getStartChapterNo();
+        if (startChapterNo != null && startChapterNo > chapterNo) {
+            return false;
+        }
+        Integer endChapterNo = relation.getEndChapterNo() == null
+                ? eventChapterNos.get(relation.getEndEventId())
+                : relation.getEndChapterNo();
+        if (endChapterNo != null) {
+            return endChapterNo > chapterNo;
+        }
+        return relation.getEndEventId() == null
+                && relation.getEndChapterNo() == null
+                && "active".equalsIgnoreCase(blankToEmpty(relation.getRelationStatus()));
+    }
+
+    private String stateKey(EntityStateRecord record) {
+        return blankToEmpty(record.getEntityType()) + ":" + record.getEntityId() + ":" + blankToEmpty(record.getStateType());
     }
 
     private <T> List<T> selectByReference(List<T> all, int limit, Predicate<T> matcher) {

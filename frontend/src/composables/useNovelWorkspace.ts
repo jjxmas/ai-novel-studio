@@ -31,7 +31,6 @@ import type {
   StoryItemRequest,
   StoryLocation,
   StoryLocationRequest,
-  WorkflowStage,
   WorldRule,
   WorldRuleRequest,
 } from '@/api/types';
@@ -62,10 +61,24 @@ interface WorkspaceState {
 }
 
 const nowText = () => new Date().toLocaleString('zh-CN', { hour12: false });
+const activeProjectStorageKey = 'ai-novel-studio.active-project-id';
+
+function storedActiveProjectId() {
+  const value = Number.parseInt(localStorage.getItem(activeProjectStorageKey) ?? '', 10);
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function persistActiveProjectId(projectId: number | null) {
+  if (projectId === null) {
+    localStorage.removeItem(activeProjectStorageKey);
+    return;
+  }
+  localStorage.setItem(activeProjectStorageKey, String(projectId));
+}
 
 const state = reactive<WorkspaceState>({
   projects: [],
-  activeProjectId: null,
+  activeProjectId: storedActiveProjectId(),
   modelConfigs: [
     {
       id: 1,
@@ -113,6 +126,28 @@ function withFallback<T>(
   message: string,
   isValid: (data: T) => boolean = () => true,
 ): Promise<T> {
+  return action
+    .then((data) => {
+      if (!isValid(data)) {
+        throw new Error('INVALID_RESPONSE');
+      }
+      state.lastMessage = message;
+      return data;
+    })
+    .catch((error) => {
+      state.lastMessage = error instanceof Error
+        ? error.message.replace('BUSINESS_ERROR:', '')
+        : '请求失败';
+      throw error;
+    });
+}
+
+function withReadFallback<T>(
+  action: Promise<T>,
+  fallback: () => T,
+  message: string,
+  isValid: (data: T) => boolean = () => true,
+): Promise<T> {
   const useFallback = () => {
     const data = fallback();
     state.lastMessage = `${message}（当前使用前端 mock 数据）`;
@@ -120,13 +155,7 @@ function withFallback<T>(
   };
 
   return action
-    .then((data) => {
-      if (!isValid(data)) {
-        return useFallback();
-      }
-      state.lastMessage = message;
-      return data;
-    })
+    .then((data) => isValid(data) ? (state.lastMessage = message, data) : useFallback())
     .catch((error) => {
       if (error instanceof Error && error.message === 'NETWORK_UNAVAILABLE') {
         return useFallback();
@@ -136,53 +165,6 @@ function withFallback<T>(
         : '请求失败';
       throw error;
     });
-}
-
-function addVersion(targetType: string, targetId: number, actionType: string, summary: string) {
-  state.versions.unshift({
-    id: next(),
-    projectId: state.activeProjectId ?? 0,
-    targetType,
-    targetId,
-    actionType,
-    summary,
-    createdAt: nowText(),
-  });
-}
-
-function setProjectStage(stage: WorkflowStage) {
-  const project = state.projects.find((item) => item.id === state.activeProjectId);
-  if (project) {
-    project.stage = stage;
-    project.updatedAt = nowText();
-  }
-}
-
-function syncSettingLibraryMetrics() {
-  if (!state.settingLibrary) {
-    return;
-  }
-  state.settingLibrary.characterCount = state.characters.length;
-  state.settingLibrary.organizationCount = state.organizations.length;
-  state.settingLibrary.locationCount = state.locations.length;
-  state.settingLibrary.itemCount = state.items.length;
-  state.settingLibrary.ruleCount = state.worldRules.length;
-  state.settingLibrary.relationCount = state.relations.length;
-  state.settingLibrary.eventCount = state.events.length;
-  state.settingLibrary.stateRecordCount = state.stateRecords.length;
-
-  const counts = [
-    state.settingLibrary.characterCount,
-    state.settingLibrary.organizationCount,
-    state.settingLibrary.locationCount,
-    state.settingLibrary.itemCount,
-    state.settingLibrary.ruleCount,
-    state.settingLibrary.relationCount,
-    state.settingLibrary.eventCount,
-    state.settingLibrary.stateRecordCount,
-  ];
-  const filled = counts.filter((count) => count > 0).length;
-  state.settingLibrary.completenessScore = Math.round((filled * 100) / 8);
 }
 
 function appendCreated<T extends { id: number }>(items: T[], created: T) {
@@ -207,7 +189,7 @@ const selectedIdea = computed(() => state.ideas.find((idea) => idea.selected) ??
 const canGenerateSetting = computed(() => Boolean(selectedIdea.value));
 const canGenerateOutline = computed(() => Boolean(state.settingLibrary?.confirmed));
 const canGenerateChapters = computed(() => Boolean(state.outline?.confirmed));
-const canCheck = computed(() => state.chapters.some((chapter) => chapter.content.trim().length > 0));
+const canCheck = computed(() => state.chapters.some((chapter) => chapter.hasContent));
 
 const isIdeaList = (data: Idea[]) =>
   Array.isArray(data) && data.every((item) => Boolean(item.title && item.sellingPoint));
@@ -220,6 +202,7 @@ export function useNovelWorkspace() {
   function resetProjectData() {
     state.ideas = [];
     state.settingLibrary = null;
+    state.settingWorkflow = null;
     state.characters = [];
     state.organizations = [];
     state.locations = [];
@@ -229,6 +212,7 @@ export function useNovelWorkspace() {
     state.events = [];
     state.stateRecords = [];
     state.outline = null;
+    state.outlineWorkflow = null;
     state.chapters = [];
     state.projectMemory = null;
     state.checks = [];
@@ -237,50 +221,69 @@ export function useNovelWorkspace() {
   }
 
   async function loadProjects() {
-    const projects = await withFallback(novelApi.listProjects(), () => [], '作品列表已加载');
+    const projects = await withReadFallback(novelApi.listProjects(), () => state.projects, '作品列表已加载');
     state.projects = projects;
+    if (state.activeProjectId && !projects.some((project) => project.id === state.activeProjectId)) {
+      state.activeProjectId = null;
+      persistActiveProjectId(null);
+      resetProjectData();
+    }
     return projects;
   }
 
   function selectProject(projectId: number) {
     state.activeProjectId = projectId;
+    persistActiveProjectId(projectId);
     resetProjectData();
     state.lastMessage = '作品已选中，请从侧边栏进入对应流程。';
   }
 
   async function loadIdeas() {
-    if (!state.activeProjectId) {
+    const projectId = state.activeProjectId;
+    if (!projectId) {
       return [];
     }
-    const ideas = await withFallback(novelApi.listIdeas(state.activeProjectId), () => state.ideas, '创意列表已加载', isIdeaList);
+    const ideas = await withReadFallback(novelApi.listIdeas(projectId), () => state.ideas, '创意列表已加载', isIdeaList);
+    if (state.activeProjectId !== projectId) {
+      return ideas;
+    }
     state.ideas = ideas;
     return ideas;
   }
 
   async function loadSettingLibrary() {
-    if (!state.activeProjectId) {
+    const projectId = state.activeProjectId;
+    if (!projectId) {
       return null;
     }
-    const setting = await novelApi.getSettingLibrary(state.activeProjectId).catch(() => null);
+    const setting = await novelApi.getSettingLibrary(projectId).catch(() => null);
+    if (state.activeProjectId !== projectId) {
+      return setting;
+    }
     state.settingLibrary = setting;
     return setting;
   }
 
   async function loadLatestSettingWorkflow() {
-    if (!state.activeProjectId) {
+    const projectId = state.activeProjectId;
+    if (!projectId) {
       return null;
     }
-    const workflow = await novelApi.getLatestSettingWorkflow(state.activeProjectId).catch(() => null);
+    const workflow = await novelApi.getLatestSettingWorkflow(projectId).catch(() => null);
+    if (state.activeProjectId !== projectId) {
+      return workflow;
+    }
     state.settingWorkflow = workflow;
     return workflow;
   }
 
   async function loadSettingSnapshot() {
-    if (!state.activeProjectId) {
+    const projectId = state.activeProjectId;
+    if (!projectId) {
       return null;
     }
-    const snapshot = await novelApi.getSettingLibrarySnapshot(state.activeProjectId).catch(() => null);
-    if (!snapshot) {
+    const snapshot = await novelApi.getSettingLibrarySnapshot(projectId).catch(() => null);
+    if (!snapshot || state.activeProjectId !== projectId) {
       return null;
     }
     state.settingLibrary = snapshot.settingLibrary;
@@ -292,95 +295,102 @@ export function useNovelWorkspace() {
     state.relations = snapshot.relations;
     state.events = snapshot.events;
     state.stateRecords = snapshot.stateRecords;
-    syncSettingLibraryMetrics();
     return snapshot;
   }
 
   async function loadCharacters() {
-    if (!state.activeProjectId) {
+    const projectId = state.activeProjectId;
+    if (!projectId) {
       return [];
     }
-    const characters = await withFallback(novelApi.listCharacters(state.activeProjectId), () => state.characters, '角色列表已加载');
+    const characters = await withReadFallback(novelApi.listCharacters(projectId), () => state.characters, '角色列表已加载');
+    if (state.activeProjectId !== projectId) return characters;
     state.characters = characters;
-    syncSettingLibraryMetrics();
     return characters;
   }
 
   async function loadOrganizations() {
-    if (!state.activeProjectId) {
+    const projectId = state.activeProjectId;
+    if (!projectId) {
       return [];
     }
-    const organizations = await withFallback(
-      novelApi.listOrganizations(state.activeProjectId),
+    const organizations = await withReadFallback(
+      novelApi.listOrganizations(projectId),
       () => state.organizations,
       '组织列表已加载',
     );
+    if (state.activeProjectId !== projectId) return organizations;
     state.organizations = organizations;
-    syncSettingLibraryMetrics();
     return organizations;
   }
 
   async function loadLocations() {
-    if (!state.activeProjectId) {
+    const projectId = state.activeProjectId;
+    if (!projectId) {
       return [];
     }
-    const locations = await withFallback(novelApi.listLocations(state.activeProjectId), () => state.locations, '地点列表已加载');
+    const locations = await withReadFallback(novelApi.listLocations(projectId), () => state.locations, '地点列表已加载');
+    if (state.activeProjectId !== projectId) return locations;
     state.locations = locations;
-    syncSettingLibraryMetrics();
     return locations;
   }
 
   async function loadItems() {
-    if (!state.activeProjectId) {
+    const projectId = state.activeProjectId;
+    if (!projectId) {
       return [];
     }
-    const items = await withFallback(novelApi.listItems(state.activeProjectId), () => state.items, '物品列表已加载');
+    const items = await withReadFallback(novelApi.listItems(projectId), () => state.items, '物品列表已加载');
+    if (state.activeProjectId !== projectId) return items;
     state.items = items;
-    syncSettingLibraryMetrics();
     return items;
   }
 
   async function loadWorldRules() {
-    if (!state.activeProjectId) {
+    const projectId = state.activeProjectId;
+    if (!projectId) {
       return [];
     }
-    const worldRules = await withFallback(novelApi.listWorldRules(state.activeProjectId), () => state.worldRules, '规则列表已加载');
+    const worldRules = await withReadFallback(novelApi.listWorldRules(projectId), () => state.worldRules, '规则列表已加载');
+    if (state.activeProjectId !== projectId) return worldRules;
     state.worldRules = worldRules;
-    syncSettingLibraryMetrics();
     return worldRules;
   }
 
   async function loadRelations() {
-    if (!state.activeProjectId) {
+    const projectId = state.activeProjectId;
+    if (!projectId) {
       return [];
     }
-    const relations = await withFallback(novelApi.listRelations(state.activeProjectId), () => state.relations, '关系列表已加载');
+    const relations = await withReadFallback(novelApi.listRelations(projectId), () => state.relations, '关系列表已加载');
+    if (state.activeProjectId !== projectId) return relations;
     state.relations = relations;
-    syncSettingLibraryMetrics();
     return relations;
   }
 
   async function loadEvents() {
-    if (!state.activeProjectId) {
+    const projectId = state.activeProjectId;
+    if (!projectId) {
       return [];
     }
-    const events = await withFallback(novelApi.listEvents(state.activeProjectId), () => state.events, '事件列表已加载');
+    const events = await withReadFallback(novelApi.listEvents(projectId), () => state.events, '事件列表已加载');
+    if (state.activeProjectId !== projectId) return events;
     state.events = events;
-    syncSettingLibraryMetrics();
     return events;
   }
 
   async function loadStateRecords() {
-    if (!state.activeProjectId) {
+    const projectId = state.activeProjectId;
+    if (!projectId) {
       return [];
     }
-    const stateRecords = await withFallback(
-      novelApi.listStateRecords(state.activeProjectId),
+    const stateRecords = await withReadFallback(
+      novelApi.listStateRecords(projectId),
       () => state.stateRecords,
       '状态记录已加载',
     );
+    if (state.activeProjectId !== projectId) return stateRecords;
     state.stateRecords = stateRecords;
-    syncSettingLibraryMetrics();
     return stateRecords;
   }
 
@@ -404,7 +414,7 @@ export function useNovelWorkspace() {
       },
       '角色已创建',
     );
-    syncSettingLibraryMetrics();
+    await loadSettingLibrary().catch(() => undefined);
     return appendCreated(state.characters, character);
   }
 
@@ -428,7 +438,7 @@ export function useNovelWorkspace() {
       },
       '角色已保存',
     );
-    syncSettingLibraryMetrics();
+    await loadSettingLibrary().catch(() => undefined);
     return replaceById(state.characters, character);
   }
 
@@ -438,7 +448,7 @@ export function useNovelWorkspace() {
     }
     await withFallback(novelApi.deleteCharacter(state.activeProjectId, characterId), () => undefined, '角色已删除');
     state.characters = state.characters.filter((item) => item.id !== characterId);
-    syncSettingLibraryMetrics();
+    await loadSettingLibrary().catch(() => undefined);
   }
 
   async function createOrganization(payload: OrganizationRequest) {
@@ -457,7 +467,7 @@ export function useNovelWorkspace() {
       },
       '组织已创建',
     );
-    syncSettingLibraryMetrics();
+    await loadSettingLibrary().catch(() => undefined);
     return appendCreated(state.organizations, organization);
   }
 
@@ -477,7 +487,7 @@ export function useNovelWorkspace() {
       },
       '组织已保存',
     );
-    syncSettingLibraryMetrics();
+    await loadSettingLibrary().catch(() => undefined);
     return replaceById(state.organizations, organization);
   }
 
@@ -487,7 +497,7 @@ export function useNovelWorkspace() {
     }
     await withFallback(novelApi.deleteOrganization(state.activeProjectId, organizationId), () => undefined, '组织已删除');
     state.organizations = state.organizations.filter((item) => item.id !== organizationId);
-    syncSettingLibraryMetrics();
+    await loadSettingLibrary().catch(() => undefined);
   }
 
   async function createLocation(payload: StoryLocationRequest) {
@@ -507,7 +517,7 @@ export function useNovelWorkspace() {
       },
       '地点已创建',
     );
-    syncSettingLibraryMetrics();
+    await loadSettingLibrary().catch(() => undefined);
     return appendCreated(state.locations, location);
   }
 
@@ -528,7 +538,7 @@ export function useNovelWorkspace() {
       },
       '地点已保存',
     );
-    syncSettingLibraryMetrics();
+    await loadSettingLibrary().catch(() => undefined);
     return replaceById(state.locations, location);
   }
 
@@ -538,7 +548,7 @@ export function useNovelWorkspace() {
     }
     await withFallback(novelApi.deleteLocation(state.activeProjectId, locationId), () => undefined, '地点已删除');
     state.locations = state.locations.filter((item) => item.id !== locationId);
-    syncSettingLibraryMetrics();
+    await loadSettingLibrary().catch(() => undefined);
   }
 
   async function createWorldRule(payload: WorldRuleRequest) {
@@ -556,7 +566,7 @@ export function useNovelWorkspace() {
       },
       '规则已创建',
     );
-    syncSettingLibraryMetrics();
+    await loadSettingLibrary().catch(() => undefined);
     return appendCreated(state.worldRules, worldRule);
   }
 
@@ -577,7 +587,7 @@ export function useNovelWorkspace() {
       },
       '物品已创建',
     );
-    syncSettingLibraryMetrics();
+    await loadSettingLibrary().catch(() => undefined);
     return appendCreated(state.items, item);
   }
 
@@ -598,7 +608,7 @@ export function useNovelWorkspace() {
       },
       '物品已保存',
     );
-    syncSettingLibraryMetrics();
+    await loadSettingLibrary().catch(() => undefined);
     return replaceById(state.items, item);
   }
 
@@ -608,7 +618,7 @@ export function useNovelWorkspace() {
     }
     await withFallback(novelApi.deleteItem(state.activeProjectId, itemId), () => undefined, '物品已删除');
     state.items = state.items.filter((entry) => entry.id !== itemId);
-    syncSettingLibraryMetrics();
+    await loadSettingLibrary().catch(() => undefined);
   }
 
   async function updateWorldRule(ruleId: number, payload: WorldRuleRequest) {
@@ -626,7 +636,7 @@ export function useNovelWorkspace() {
       },
       '规则已保存',
     );
-    syncSettingLibraryMetrics();
+    await loadSettingLibrary().catch(() => undefined);
     return replaceById(state.worldRules, worldRule);
   }
 
@@ -636,7 +646,7 @@ export function useNovelWorkspace() {
     }
     await withFallback(novelApi.deleteWorldRule(state.activeProjectId, ruleId), () => undefined, '规则已删除');
     state.worldRules = state.worldRules.filter((item) => item.id !== ruleId);
-    syncSettingLibraryMetrics();
+    await loadSettingLibrary().catch(() => undefined);
   }
 
   async function createRelation(payload: EntityRelationRequest) {
@@ -666,7 +676,7 @@ export function useNovelWorkspace() {
       },
       '关系已创建',
     );
-    syncSettingLibraryMetrics();
+    await loadSettingLibrary().catch(() => undefined);
     return appendCreated(state.relations, relation);
   }
 
@@ -687,7 +697,7 @@ export function useNovelWorkspace() {
       },
       '事件已创建',
     );
-    syncSettingLibraryMetrics();
+    await loadSettingLibrary().catch(() => undefined);
     return appendCreated(state.events, event);
   }
 
@@ -715,7 +725,7 @@ export function useNovelWorkspace() {
       },
       '状态记录已创建',
     );
-    syncSettingLibraryMetrics();
+    await loadSettingLibrary().catch(() => undefined);
     return appendCreated(state.stateRecords, stateRecord);
   }
 
@@ -746,7 +756,7 @@ export function useNovelWorkspace() {
       },
       '关系已保存',
     );
-    syncSettingLibraryMetrics();
+    await loadSettingLibrary().catch(() => undefined);
     return replaceById(state.relations, relation);
   }
 
@@ -767,7 +777,7 @@ export function useNovelWorkspace() {
       },
       '事件已保存',
     );
-    syncSettingLibraryMetrics();
+    await loadSettingLibrary().catch(() => undefined);
     return replaceById(state.events, event);
   }
 
@@ -795,7 +805,7 @@ export function useNovelWorkspace() {
       },
       '状态记录已保存',
     );
-    syncSettingLibraryMetrics();
+    await loadSettingLibrary().catch(() => undefined);
     return replaceById(state.stateRecords, stateRecord);
   }
 
@@ -805,7 +815,7 @@ export function useNovelWorkspace() {
     }
     await withFallback(novelApi.deleteRelation(state.activeProjectId, relationId), () => undefined, '关系已删除');
     state.relations = state.relations.filter((entry) => entry.id !== relationId);
-    syncSettingLibraryMetrics();
+    await loadSettingLibrary().catch(() => undefined);
   }
 
   async function deleteEvent(eventId: number) {
@@ -814,7 +824,7 @@ export function useNovelWorkspace() {
     }
     await withFallback(novelApi.deleteEvent(state.activeProjectId, eventId), () => undefined, '事件已删除');
     state.events = state.events.filter((entry) => entry.id !== eventId);
-    syncSettingLibraryMetrics();
+    await loadSettingLibrary().catch(() => undefined);
   }
 
   async function deleteStateRecord(recordId: number) {
@@ -823,52 +833,76 @@ export function useNovelWorkspace() {
     }
     await withFallback(novelApi.deleteStateRecord(state.activeProjectId, recordId), () => undefined, '状态记录已删除');
     state.stateRecords = state.stateRecords.filter((entry) => entry.id !== recordId);
-    syncSettingLibraryMetrics();
+    await loadSettingLibrary().catch(() => undefined);
   }
 
   async function loadOutline() {
-    if (!state.activeProjectId) {
+    const projectId = state.activeProjectId;
+    if (!projectId) {
       return null;
     }
-    const outline = await novelApi.getGlobalOutline(state.activeProjectId).catch(() => null);
+    const outline = await novelApi.getGlobalOutline(projectId).catch(() => null);
+    if (state.activeProjectId !== projectId) {
+      return outline;
+    }
     state.outline = outline;
     return outline;
   }
 
   async function loadLatestOutlineWorkflow() {
-    if (!state.activeProjectId) {
+    const projectId = state.activeProjectId;
+    if (!projectId) {
       return null;
     }
-    const workflow = await novelApi.getLatestOutlineWorkflow(state.activeProjectId).catch(() => null);
+    const workflow = await novelApi.getLatestOutlineWorkflow(projectId).catch(() => null);
+    if (state.activeProjectId !== projectId) {
+      return workflow;
+    }
     state.outlineWorkflow = workflow;
     return workflow;
   }
 
   async function loadChapters() {
-    if (!state.activeProjectId) {
+    const projectId = state.activeProjectId;
+    if (!projectId) {
       return [];
     }
-    const chapters = await withFallback(novelApi.listChapters(state.activeProjectId), () => state.chapters, '章节列表已加载', isChapterList);
+    const chapters = await withReadFallback(novelApi.listChapters(projectId), () => state.chapters, '章节列表已加载', isChapterList);
+    if (state.activeProjectId !== projectId) {
+      return chapters;
+    }
     state.chapters = chapters;
     return chapters;
   }
 
   async function loadProjectMemory() {
-    if (!state.activeProjectId) {
+    const projectId = state.activeProjectId;
+    if (!projectId) {
       return null;
     }
-    const memory = await novelApi.getProjectMemory(state.activeProjectId).catch(() => null);
+    const memory = await novelApi.getProjectMemory(projectId).catch(() => null);
+    if (state.activeProjectId !== projectId) {
+      return memory;
+    }
     state.projectMemory = memory;
     return memory;
   }
 
   async function loadVersions() {
-    if (!state.activeProjectId) {
+    const projectId = state.activeProjectId;
+    if (!projectId) {
       return [];
     }
-    const versions = await withFallback(novelApi.listVersions(state.activeProjectId), () => state.versions, '版本记录已加载');
+    const versions = await withReadFallback(novelApi.listVersions(projectId), () => state.versions, '版本记录已加载');
+    if (state.activeProjectId !== projectId) {
+      return versions;
+    }
     state.versions = versions;
     return versions;
+  }
+
+  async function refreshServerMetadata() {
+    await Promise.allSettled([loadProjects(), loadVersions()]);
   }
 
   async function createProject(payload: ProjectCreateRequest) {
@@ -888,8 +922,9 @@ export function useNovelWorkspace() {
       state.projects.unshift(project);
     }
     state.activeProjectId = project.id;
+    persistActiveProjectId(project.id);
     resetProjectData();
-    addVersion('project', project.id, 'create', `创建作品《${project.title}》`);
+    await refreshServerMetadata();
     return project;
   }
 
@@ -907,7 +942,7 @@ export function useNovelWorkspace() {
         updatedAt: nowText(),
       };
     }
-    addVersion('project', projectId, 'edit', '用户修改作品基础信息');
+    await refreshServerMetadata();
   }
 
   async function deleteProject(projectId: number) {
@@ -919,6 +954,7 @@ export function useNovelWorkspace() {
     state.projects = state.projects.filter((item) => item.id !== projectId);
     if (state.activeProjectId === projectId) {
       state.activeProjectId = state.projects[0]?.id ?? null;
+      persistActiveProjectId(state.activeProjectId);
       resetProjectData();
     }
   }
@@ -934,7 +970,7 @@ export function useNovelWorkspace() {
   }
 
   async function loadModelConfigs() {
-    const models = await withFallback(novelApi.listModelConfigs(), () => state.modelConfigs, '模型配置列表已加载');
+    const models = await withReadFallback(novelApi.listModelConfigs(), () => state.modelConfigs, '模型配置列表已加载');
     state.modelConfigs = models;
     return models;
   }
@@ -1010,16 +1046,14 @@ export function useNovelWorkspace() {
       isIdeaList,
     );
     state.ideas = ideas;
-    addVersion('idea', ideas[0]?.id ?? 0, 'generate', '生成多个创意方案');
-    setProjectStage('idea');
+    await refreshServerMetadata();
     return ideas;
   }
 
   async function selectIdea(id: number) {
     await withFallback(novelApi.selectIdea(id), () => undefined, '创意已选定');
     await loadIdeas().catch(() => undefined);
-    addVersion('idea', id, 'confirm', '选定创意方案');
-    setProjectStage('setting');
+    await refreshServerMetadata();
   }
 
   async function rewriteIdea(id: number, suggestion: string) {
@@ -1038,7 +1072,7 @@ export function useNovelWorkspace() {
       '创意已重生成',
     );
     Object.assign(idea, rewritten, { projectId });
-    addVersion('idea', id, 'rewrite', `根据意见重生成创意：${suggestion || '未填写具体意见'}`);
+    await refreshServerMetadata();
   }
 
   async function updateIdea(idea: Idea) {
@@ -1046,15 +1080,17 @@ export function useNovelWorkspace() {
     if (!localIdea) {
       return;
     }
-    localIdea.title = idea.title;
-    localIdea.sellingPoint = idea.sellingPoint;
-    localIdea.worldview = idea.worldview;
-    localIdea.mainConflict = idea.mainConflict;
-    localIdea.estimatedWords = idea.estimatedWords;
-    localIdea.content = idea.content;
-    await withFallback(novelApi.updateIdea(localIdea), () => undefined, '创意修改已保存');
+    await withFallback(novelApi.updateIdea({ ...idea }), () => undefined, '创意修改已保存');
+    Object.assign(localIdea, {
+      title: idea.title,
+      sellingPoint: idea.sellingPoint,
+      worldview: idea.worldview,
+      mainConflict: idea.mainConflict,
+      estimatedWords: idea.estimatedWords,
+      content: idea.content,
+    });
     await loadIdeas().catch(() => undefined);
-    addVersion('idea', idea.id, 'edit', '用户直接修改创意内容');
+    await refreshServerMetadata();
   }
 
   async function deleteIdea(id: number) {
@@ -1064,43 +1100,7 @@ export function useNovelWorkspace() {
     }
     await withFallback(novelApi.deleteIdea(id), () => undefined, '创意已删除');
     state.ideas = state.ideas.filter((item) => item.id !== id);
-    addVersion('idea', id, 'delete', '删除创意方案');
-  }
-
-  async function generateSettingLibrary() {
-    if (!canGenerateSetting.value || !state.activeProjectId) {
-      state.lastMessage = '请先选定创意，再生成设定库。';
-      return;
-    }
-    const setting = await withFallback(
-      novelApi.generateSettingLibrary(state.activeProjectId),
-      () => ({
-        id: next(),
-        projectId: state.activeProjectId!,
-        sourceIdeaId: selectedIdea.value?.id ?? null,
-        summary: '基于已选创意生成的结构化设定总览。',
-        overview:
-          '基于已选创意生成的结构化设定总览。\n\n建议继续补全角色、组织、地点、物品、规则、关系、事件与状态记录后，再确认设定库。',
-        genreTemplate: activeProject.value?.platformTarget ?? '通用',
-        status: 'generated',
-        confirmed: false,
-        confirmedAt: null,
-        characterCount: 0,
-        organizationCount: 0,
-        locationCount: 0,
-        itemCount: 0,
-        ruleCount: 0,
-        relationCount: 0,
-        eventCount: 0,
-        stateRecordCount: 0,
-        completenessScore: 0,
-      }),
-      '设定库已生成',
-      (data) => Boolean(data.overview || data.summary),
-    );
-    state.settingLibrary = setting;
-    addVersion('setting_library', setting.id, 'generate', '生成设定库');
-    return setting;
+    await refreshServerMetadata();
   }
 
   async function startSettingWorkflow() {
@@ -1217,7 +1217,7 @@ export function useNovelWorkspace() {
       '设定库修改已保存',
     );
     Object.assign(state.settingLibrary, updated);
-    addVersion('setting_library', state.settingLibrary.id, 'edit', '用户直接修改设定库');
+    await refreshServerMetadata();
   }
 
   async function confirmSettingLibrary() {
@@ -1231,30 +1231,7 @@ export function useNovelWorkspace() {
     );
     state.settingLibrary.confirmed = true;
     state.settingLibrary.status = 'confirmed';
-    addVersion('setting_library', state.settingLibrary.id, 'confirm', '确认设定库');
-    setProjectStage('outline');
-  }
-
-  async function generateOutline() {
-    if (!canGenerateOutline.value || !state.activeProjectId) {
-      state.lastMessage = '请先确认设定库，再生成全局大纲。';
-      return;
-    }
-    const outline = await withFallback(
-      novelApi.generateGlobalOutline(state.activeProjectId),
-      () => ({
-        id: next(),
-        projectId: state.activeProjectId!,
-        confirmed: false,
-        content:
-          '全局主线：主角从城市小事件切入，逐步发现修真秩序正在影响普通生活。\n第一卷：建立主角目标、能力代价和第一个敌对势力。\n第二卷：扩大地点和关系网，揭露资源争夺。\n第三卷：回收旧物伏笔，完成阶段性胜利并打开更大冲突。',
-      }),
-      '全局大纲已生成',
-      (data) => Boolean(data.content),
-    );
-    state.outline = outline;
-    addVersion('global_outline', outline.id, 'generate', '生成全局大纲');
-    return outline;
+    await refreshServerMetadata();
   }
 
   async function startOutlineWorkflow() {
@@ -1303,7 +1280,7 @@ export function useNovelWorkspace() {
     state.outlineWorkflow.status = 'committed';
     state.outlineWorkflow.committedAt = new Date().toISOString();
     await loadChapters().catch(() => undefined);
-    setProjectStage('chapter');
+    await refreshServerMetadata();
     return outline;
   }
 
@@ -1318,7 +1295,7 @@ export function useNovelWorkspace() {
       '全局大纲修改已保存',
     );
     await loadOutline().catch(() => undefined);
-    addVersion('global_outline', state.outline.id, 'edit', '用户直接修改全局大纲');
+    await refreshServerMetadata();
   }
 
   async function confirmOutline() {
@@ -1332,50 +1309,7 @@ export function useNovelWorkspace() {
     );
     state.outline.confirmed = true;
     await loadOutline().catch(() => undefined);
-    addVersion('global_outline', state.outline.id, 'confirm', '确认全局大纲');
-    setProjectStage('chapter');
-  }
-
-  async function generateChapterOutlines() {
-    if (!canGenerateChapters.value || !state.activeProjectId) {
-      state.lastMessage = '请先确认全局大纲，再生成章节。';
-      return [];
-    }
-    const chapters = await withFallback(
-      novelApi.generateChapterOutlines(state.activeProjectId),
-      () => [
-        {
-          id: next(),
-          projectId: state.activeProjectId!,
-          title: '第 1 章 旧物',
-          outline: '主角在现实麻烦中发现家中旧物异常，结尾留下超凡线索。',
-          content: '',
-          status: 'outline_ready' as const,
-        },
-        {
-          id: next(),
-          projectId: state.activeProjectId!,
-          title: '第 2 章 第一次代价',
-          outline: '主角尝试使用能力解决问题，却发现每次使用都会带来现实代价。',
-          content: '',
-          status: 'outline_ready' as const,
-        },
-        {
-          id: next(),
-          projectId: state.activeProjectId!,
-          title: '第 3 章 城市背面',
-          outline: '隐藏势力露出一角，主角意识到自己不是唯一接触传承的人。',
-          content: '',
-          status: 'outline_ready' as const,
-        },
-      ],
-      '章节大纲已生成',
-      isChapterList,
-    );
-    state.chapters = chapters;
-    addVersion('chapter_outline', chapters[0]?.id ?? 0, 'generate', '生成章节大纲');
-    setProjectStage('chapter');
-    return chapters;
+    await refreshServerMetadata();
   }
 
   async function continueChapterOutlines(
@@ -1404,6 +1338,8 @@ export function useNovelWorkspace() {
           outline: '承接上一章的行动结果，推进长期冲突，并在结尾留下新的牵引。',
           scenePlan: ['承接上一章', '冲突升级', '结尾钩子'],
           content: '',
+          hasContent: false,
+          contentStatus: 'not_generated',
           status: 'outline_ready' as const,
         };
       }),
@@ -1412,23 +1348,19 @@ export function useNovelWorkspace() {
     );
     state.chapters = [...state.chapters, ...chapters]
       .sort((left, right) => (left.chapterNo ?? 0) - (right.chapterNo ?? 0));
-    addVersion('chapter_outline', chapters[0]?.id ?? 0, 'generate', `追加 ${count} 章章节大纲`);
+    await refreshServerMetadata();
     return chapters;
   }
 
-  async function generateChapterContent(chapterId: number, suggestion = '') {
-    const chapter = state.chapters.find((item) => item.id === chapterId);
+  async function generateChapterContent(chapterId: number, suggestion = '', chapterDetail?: Chapter) {
+    const chapter = chapterDetail ?? state.chapters.find((item) => item.id === chapterId);
     if (!chapter) {
       return;
     }
     const originalContent = chapter.content;
+    const originalStatus = chapter.status;
     const rewriting = Boolean(chapter.content);
     let receivedContent = false;
-    const fallback = () => ({
-      ...chapter,
-      content: `${chapter.title}\n\n${chapter.outline}\n\n主角按照大纲推进当前事件，场景中保留人物目标、冲突升级和章末钩子。${suggestion ? `\n\n重生成意见：${suggestion}` : ''}`,
-      status: 'content_ready' as const,
-    });
     const handleProgressEvent = (event: { type: string; message?: string }) => {
       if (event.type === 'queued') {
         const match = event.message?.match(/\d+/);
@@ -1478,87 +1410,75 @@ export function useNovelWorkspace() {
           }
         }));
       if (!chapter.content) {
-        Object.assign(chapter, fallback());
-        state.lastMessage = '章节正文已生成（当前使用前端 mock 数据）';
-      } else {
-        state.lastMessage = '章节正文已生成';
+        throw new Error('章节生成未返回有效正文');
       }
+      state.lastMessage = '章节正文已生成';
     } catch (error) {
       chapter.content = originalContent;
-      if (error instanceof Error && error.message === 'NETWORK_UNAVAILABLE') {
-        Object.assign(chapter, fallback());
-        state.lastMessage = '章节正文已生成（当前使用前端 mock 数据）';
-      } else {
-        state.lastMessage = error instanceof Error
-          ? error.message.replace('BUSINESS_ERROR:', '')
-          : '请求失败';
-        throw error;
-      }
+      chapter.status = originalStatus;
+      state.lastMessage = error instanceof Error
+        ? error.message.replace('BUSINESS_ERROR:', '')
+        : '请求失败';
+      throw error;
     }
     state.projectMemory = await novelApi.getProjectMemory(chapter.projectId).catch(() => state.projectMemory);
-    addVersion('chapter', chapterId, rewriting ? 'rewrite' : 'generate', suggestion || (rewriting ? '重生成章节正文' : '生成章节正文'));
-    setProjectStage('check');
+    const catalogChapter = state.chapters.find((item) => item.id === chapter.id);
+    if (catalogChapter && catalogChapter !== chapter) {
+      Object.assign(catalogChapter, chapter, { content: '' });
+    }
+    await refreshServerMetadata();
+    return chapter;
   }
 
-  async function updateChapterContent(chapterId: number, content: string) {
-    const chapter = state.chapters.find((item) => item.id === chapterId);
+  async function updateChapterContent(chapterId: number, content: string, chapterDetail?: Chapter) {
+    const chapter = chapterDetail ?? state.chapters.find((item) => item.id === chapterId);
     if (!chapter) {
       return;
     }
-    chapter.content = content;
-    chapter.status = 'edited';
     const updated = await withFallback(
-      novelApi.updateChapter(chapterId, content),
-      () => chapter,
+      novelApi.updateChapter(chapterId, content, chapter.lastContentVersionNo ?? 0),
+      () => ({ ...chapter, content, status: 'edited' as const }),
       '章节正文修改已保存',
     );
     Object.assign(chapter, updated);
+    const catalogChapter = state.chapters.find((item) => item.id === chapter.id);
+    if (catalogChapter && catalogChapter !== chapter) {
+      Object.assign(catalogChapter, chapter, { content: '' });
+    }
     state.projectMemory = await novelApi.getProjectMemory(chapter.projectId).catch(() => state.projectMemory);
-    addVersion('chapter', chapterId, 'edit', '用户直接修改章节正文');
+    await refreshServerMetadata();
+    return chapter;
   }
 
-  async function createCheck() {
+  async function createCheck(chapterId: number) {
     if (!canCheck.value || !state.activeProjectId) {
       state.lastMessage = '请先生成至少一章正文，再创建检查。';
       return [];
     }
-    const checks = await withFallback(
-      novelApi.createCheck(state.activeProjectId),
-      () => [
-        {
-          id: next(),
-          projectId: state.activeProjectId!,
-          type: '人物状态',
-          severity: '中' as const,
-          summary: '主角能力代价需要在后续章节持续记录，避免忽然消失。',
-          suggestion: '在章节编辑时补一句身体或现实成本。',
-        },
-        {
-          id: next(),
-          projectId: state.activeProjectId!,
-          type: 'AI 痕迹提示',
-          severity: '中' as const,
-          summary: '部分句子像概述，缺少具体动作和场景细节。',
-          suggestion: '把抽象总结改成可见动作、对白或环境反馈。',
-        },
-      ],
-      '检查结果已生成',
-      isCheckList,
-    );
-    state.checks = checks;
-    addVersion('check_result', checks[0]?.id ?? 0, 'generate', '生成连续性和风格检查结果');
-    setProjectStage('export');
-    return checks;
+    try {
+      const checks = await novelApi.createCheck(state.activeProjectId, chapterId);
+      if (!isCheckList(checks)) {
+        throw new Error('检查接口返回了无效数据');
+      }
+      state.checks = checks;
+      state.lastMessage = '检查结果已生成';
+      await refreshServerMetadata();
+      return checks;
+    } catch (error) {
+      state.lastMessage = error instanceof Error ? error.message.replace('BUSINESS_ERROR:', '') : '检查失败';
+      throw error;
+    }
   }
 
-  async function createExport(format: ExportRecord['format'], scope: string) {
+  async function createExport(format: ExportRecord['format'], scope: string, scopeEntityId?: number) {
     if (!state.activeProjectId) {
       return;
     }
+    const projectId = state.activeProjectId;
     try {
-      const result = await novelApi.createExport(state.activeProjectId, format, scope);
+      const result = await novelApi.createExport(projectId, format, scope, scopeEntityId);
       const blob = new Blob([result.content], {
-        type: format === 'markdown' ? 'text/markdown;charset=utf-8' : 'text/plain;charset=utf-8',
+        type: result.format === 'markdown' ? 'text/markdown;charset=utf-8' : 'text/plain;charset=utf-8',
       });
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
@@ -1568,15 +1488,15 @@ export function useNovelWorkspace() {
       URL.revokeObjectURL(url);
       const record = {
         id: next(),
-        projectId: state.activeProjectId,
-        format,
-        scope,
+        projectId,
+        format: result.format,
+        scope: result.scope,
         fileName: result.fileName,
         status: 'created' as const,
       };
       state.exports.unshift(record);
       state.lastMessage = '导出文件已下载';
-      addVersion('export', record.id, 'export', `导出 ${format.toUpperCase()} 文件`);
+      await refreshServerMetadata();
       return record;
     } catch (error) {
       state.lastMessage = error instanceof Error ? error.message : '导出失败';
@@ -1624,7 +1544,6 @@ export function useNovelWorkspace() {
     rewriteIdea,
     updateIdea,
     deleteIdea,
-    generateSettingLibrary,
     startSettingWorkflow,
     approveSettingWorkflowBlueprint,
     regenerateSettingWorkflowModule,
@@ -1655,12 +1574,10 @@ export function useNovelWorkspace() {
     createStateRecord,
     updateStateRecord,
     deleteStateRecord,
-    generateOutline,
     startOutlineWorkflow,
     commitOutlineWorkflow,
     updateOutline,
     confirmOutline,
-    generateChapterOutlines,
     continueChapterOutlines,
     generateChapterContent,
     updateChapterContent,

@@ -2,10 +2,10 @@ package com.jjxmas.ainovelstudio;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.scheduling.annotation.EnableAsync;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 @SpringBootApplication
-@EnableAsync
+@EnableScheduling
 /**
  * AI 小说工作室应用启动类。
  */

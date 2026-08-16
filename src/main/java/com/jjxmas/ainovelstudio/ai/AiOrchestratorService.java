@@ -176,4 +176,19 @@ public class AiOrchestratorService {
                 .temperature(0.2)
                 .build());
     }
+
+    public AiGenerateResult checkChapter(
+            Long modelConfigId,
+            String checkType,
+            Map<String, Object> context) {
+        AiTaskType taskType = "style".equals(checkType) ? AiTaskType.STYLE_CHECK : AiTaskType.CONTINUITY_CHECK;
+        return novelAiClient.generate(AiGenerateCommand.builder()
+                .modelConfigId(modelConfigId)
+                .taskType(taskType)
+                .systemPrompt(promptTemplateService.systemPrompt(taskType))
+                .userPrompt(promptTemplateService.qualityCheckPrompt(checkType, context))
+                .context(context)
+                .temperature(0.15)
+                .build());
+    }
 }

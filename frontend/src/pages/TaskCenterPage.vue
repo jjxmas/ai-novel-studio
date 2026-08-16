@@ -65,7 +65,11 @@ function statusText(status: string) {
 }
 
 function batchTypeText(batchType: string) {
-  return batchType === 'chapter_content' ? '章节正文生成' : batchType;
+  const labels: Record<string, string> = {
+    chapter_content: '章节正文生成',
+    quality_check: '全书质量检查',
+  };
+  return labels[batchType] ?? batchType;
 }
 
 function qualityStatusText(status: string, issueCount: number) {
@@ -353,7 +357,7 @@ onUnmounted(stopPolling);
           <div class="task-quality-summary">
             <div>
               <strong>批次质量报告</strong>
-              <span>每章正文完成后自动执行连续性检查</span>
+              <span>{{ selectedBatch.batchType === 'quality_check' ? '逐章执行全量质量检查' : '每章正文完成后自动执行连续性检查' }}</span>
             </div>
             <dl>
               <div><dt>已检查</dt><dd>{{ selectedBatch.qualityCheckedCount }}</dd></div>
@@ -377,7 +381,7 @@ onUnmounted(stopPolling);
           <div class="task-items" role="table" aria-label="章节任务明细">
             <div class="task-item task-item--header" role="row">
               <span>章节</span>
-              <span>生成</span>
+              <span>{{ selectedBatch.batchType === 'quality_check' ? '执行' : '生成' }}</span>
               <span>质量</span>
               <span>次数</span>
               <span>完成时间 / 详情</span>

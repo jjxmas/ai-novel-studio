@@ -12,7 +12,15 @@ public interface ChapterPostProcessService {
             String dirtyReason,
             String dirtyNote);
 
-    void refreshChapterAsync(Long chapterId, Long modelConfigId);
+    void enqueueChapter(Long chapterId, Long modelConfigId);
 
-    void refreshChapterAndMarkDirtyAsync(Long chapterId, Long modelConfigId, String dirtyReason, String dirtyNote);
+    void enqueueChapterAndMarkDirty(Long chapterId, Long modelConfigId, String dirtyReason, String dirtyNote);
+
+    ChapterQualityCheckResult refreshQueuedChapter(
+            Long chapterId,
+            int expectedContentVersion,
+            Long modelConfigId,
+            String dirtyReason,
+            String dirtyNote,
+            Long generationJobId);
 }

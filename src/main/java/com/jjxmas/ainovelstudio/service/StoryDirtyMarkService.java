@@ -189,6 +189,27 @@ public class StoryDirtyMarkService {
                 .set(StoryDirtyMark::getResolvedAt, LocalDateTime.now()));
     }
 
+    public int resolveActiveMarksByIds(List<Long> dirtyMarkIds) {
+        if (dirtyMarkIds == null || dirtyMarkIds.isEmpty()) {
+            return 0;
+        }
+        return storyDirtyMarkMapper.update(null, new LambdaUpdateWrapper<StoryDirtyMark>()
+                .in(StoryDirtyMark::getId, dirtyMarkIds)
+                .eq(StoryDirtyMark::getStatus, STATUS_ACTIVE)
+                .set(StoryDirtyMark::getStatus, STATUS_RESOLVED)
+                .set(StoryDirtyMark::getResolvedAt, LocalDateTime.now()));
+    }
+
+    public int countActiveMarksByIds(List<Long> dirtyMarkIds) {
+        if (dirtyMarkIds == null || dirtyMarkIds.isEmpty()) {
+            return 0;
+        }
+        Long count = storyDirtyMarkMapper.selectCount(new LambdaQueryWrapper<StoryDirtyMark>()
+                .in(StoryDirtyMark::getId, dirtyMarkIds)
+                .eq(StoryDirtyMark::getStatus, STATUS_ACTIVE));
+        return count == null ? 0 : count.intValue();
+    }
+
     private String blankToDefault(String value, String defaultValue) {
         return value == null || value.isBlank() ? defaultValue : value;
     }

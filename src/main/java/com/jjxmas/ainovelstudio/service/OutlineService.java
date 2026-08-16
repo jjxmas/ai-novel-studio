@@ -1,21 +1,13 @@
 package com.jjxmas.ainovelstudio.service;
 
-import com.jjxmas.ainovelstudio.pojo.dto.ChapterResponse;
-import com.jjxmas.ainovelstudio.pojo.dto.OutlineGenerateRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.OutlineResponse;
 import com.jjxmas.ainovelstudio.pojo.dto.OutlineRewriteRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.OutlineUpdateRequest;
-import java.util.List;
 
 /**
  * 大纲服务，提供全局大纲和章节大纲相关业务能力。
  */
 public interface OutlineService {
-
-    /**
-     * 按请求生成指定层级的大纲。
-     */
-    OutlineResponse generateOutline(OutlineGenerateRequest request);
 
     /**
      * 查询指定项目的全局大纲。
@@ -47,8 +39,4 @@ public interface OutlineService {
      */
     void confirmGlobalOutlineById(Long outlineId);
 
-    /**
-     * 基于已确认全局大纲生成卷和章节大纲。
-     */
-    List<ChapterResponse> generateChapterOutlines(Long projectId);
 }

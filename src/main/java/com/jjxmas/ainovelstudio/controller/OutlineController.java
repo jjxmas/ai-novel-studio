@@ -3,7 +3,6 @@ package com.jjxmas.ainovelstudio.controller;
 import com.jjxmas.ainovelstudio.common.api.ApiResponse;
 import com.jjxmas.ainovelstudio.pojo.dto.ChapterOutlineContinueRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.ChapterResponse;
-import com.jjxmas.ainovelstudio.pojo.dto.OutlineGenerateRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.OutlineResponse;
 import com.jjxmas.ainovelstudio.pojo.dto.OutlineRewriteRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.OutlineUpdateRequest;
@@ -35,15 +34,6 @@ public class OutlineController {
     @GetMapping("/global-outline/ping")
     public ApiResponse<String> ping() {
         return ApiResponse.success("outline-module-ready");
-    }
-
-    @PostMapping("/projects/{projectId}/global-outline/generate")
-    public ApiResponse<OutlineResponse> generateGlobalOutline(
-            @PathVariable Long projectId,
-            @Valid @RequestBody OutlineGenerateRequest request) {
-        request.setProjectId(projectId);
-        request.setOutlineLevel("global");
-        return ApiResponse.success("global-outline-generated", outlineService.generateOutline(request));
     }
 
     @PostMapping("/projects/{projectId}/outline-workflows")
@@ -107,11 +97,6 @@ public class OutlineController {
     public ApiResponse<Void> confirmGlobalOutlineById(@PathVariable Long outlineId) {
         outlineService.confirmGlobalOutlineById(outlineId);
         return ApiResponse.success("global-outline-confirmed", null);
-    }
-
-    @PostMapping({"/projects/{projectId}/chapters/generate-outline", "/projects/{projectId}/chapter-outlines/generate"})
-    public ApiResponse<List<ChapterResponse>> generateChapterOutlines(@PathVariable Long projectId) {
-        return ApiResponse.success("chapter-outlines-generated", outlineService.generateChapterOutlines(projectId));
     }
 
     @PostMapping("/projects/{projectId}/chapters/continue-outline")

@@ -1,7 +1,7 @@
 export interface ApiResponse<T> {
   code: number;
   message: string;
-  data: T;
+  data?: T | null;
   success: boolean;
   timestamp: number;
   requestId: string;
@@ -434,7 +434,21 @@ export interface Chapter {
   outline: string;
   scenePlan?: string[];
   content: string;
+  wordCount?: number;
+  hasContent: boolean;
+  contentStatus: 'not_generated' | 'generating' | 'generated' | 'edited' | 'checked' | string;
+  contentGeneratedAt?: string | null;
+  contentUpdatedAt?: string | null;
+  lastGenerationJobId?: number | null;
+  lastContentVersionNo?: number;
   status: 'outline_ready' | 'content_ready' | 'edited';
+}
+
+export interface ChapterPageResult {
+  items: Chapter[];
+  total: number;
+  page: number;
+  size: number;
 }
 
 export interface ChapterOutlineContinueRequest {
@@ -573,6 +587,24 @@ export interface StoryRebuildResult {
   note: string;
 }
 
+export interface StoryRebuildRun {
+  runId: number;
+  generationJobId?: number | null;
+  projectId: number;
+  status: 'pending' | 'running' | 'succeeded' | 'failed' | string;
+  phase: 'fact_projection' | 'narrative_memory' | 'finalizing' | 'completed' | string;
+  requestedStartChapterNo?: number | null;
+  actualStartChapterNo?: number | null;
+  nextFactChapterNo?: number | null;
+  nextMemoryChapterNo?: number | null;
+  processedChapterCount: number;
+  skippedChapterCount: number;
+  errorMessage?: string | null;
+  result?: StoryRebuildResult | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
 export interface CheckResult {
   id: number;
   projectId: number;
@@ -591,12 +623,22 @@ export interface ExportRecord {
   status: 'created' | 'failed';
 }
 
+export interface ExportResult {
+  fileName: string;
+  filePath: string;
+  format: 'markdown' | 'txt';
+  scope: string;
+  content: string;
+}
+
 export interface ContentVersion {
   id: number;
   projectId: number;
   targetType: string;
   targetId: number;
+  versionNo: number;
   actionType: string;
   summary: string;
+  revisionInstruction?: string | null;
   createdAt: string;
 }

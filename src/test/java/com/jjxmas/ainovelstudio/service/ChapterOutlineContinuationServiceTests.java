@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -37,6 +38,9 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.transaction.TransactionStatus;
+import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.support.TransactionTemplate;
 
 class ChapterOutlineContinuationServiceTests {
 
@@ -54,6 +58,7 @@ class ChapterOutlineContinuationServiceTests {
         GenerationJobService generationJobService = mock(GenerationJobService.class);
         VersionService versionService = mock(VersionService.class);
         ChapterConverter chapterConverter = mock(ChapterConverter.class);
+        TransactionTemplate transactionTemplate = mock(TransactionTemplate.class);
 
         Project project = new Project().setTitle("测试作品");
         project.setId(1L);
@@ -74,6 +79,7 @@ class ChapterOutlineContinuationServiceTests {
         Chapter existingChapter = new Chapter().setProjectId(1L).setChapterNo(8).setTitle("第8章").setOutline("已有大纲");
         existingChapter.setId(8L);
 
+        when(projectMapper.selectById(1L)).thenReturn(project);
         when(projectMapper.selectOne(any())).thenReturn(project);
         when(outlineMapper.selectOne(any())).thenReturn(outline);
         when(settingLibraryMapper.selectOne(any())).thenReturn(setting);
@@ -123,6 +129,9 @@ class ChapterOutlineContinuationServiceTests {
                     .status(chapter.getStatus())
                     .build();
         });
+        when(transactionTemplate.execute(any(TransactionCallback.class))).thenAnswer(invocation ->
+                invocation.<TransactionCallback<List<ChapterResponse>>>getArgument(0)
+                        .doInTransaction(mock(TransactionStatus.class)));
 
         ChapterOutlineContinuationService service = new ChapterOutlineContinuationService(
                 projectMapper,
@@ -136,7 +145,8 @@ class ChapterOutlineContinuationServiceTests {
                 aiOrchestratorService,
                 generationJobService,
                 versionService,
-                chapterConverter);
+                chapterConverter,
+                transactionTemplate);
         ChapterOutlineContinueRequest request = new ChapterOutlineContinueRequest();
         request.setCount(50);
         request.setModelConfigId(7L);
@@ -146,7 +156,16 @@ class ChapterOutlineContinuationServiceTests {
         assertThat(result).hasSize(50);
         assertThat(result).extracting(ChapterResponse::getChapterNo)
                 .containsExactlyElementsOf(IntStream.rangeClosed(9, 58).boxed().toList());
-        verify(aiOrchestratorService, times(5)).continueChapterOutline(eq(7L), any());
+        ArgumentCaptor<Map<String, Object>> contexts = ArgumentCaptor.forClass(Map.class);
+        verify(aiOrchestratorService, times(5)).continueChapterOutline(eq(7L), contexts.capture());
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> secondBatchRecent =
+                (List<Map<String, Object>>) contexts.getAllValues().get(1).get("recentChapterOutlines");
+        assertThat(secondBatchRecent).extracting(item -> item.get("chapterNo"))
+                .containsSequence(IntStream.rangeClosed(9, 18).boxed().toArray());
+        var order = inOrder(aiOrchestratorService, transactionTemplate);
+        order.verify(aiOrchestratorService, times(5)).continueChapterOutline(eq(7L), any());
+        order.verify(transactionTemplate).execute(any(TransactionCallback.class));
         ArgumentCaptor<Chapter> inserted = ArgumentCaptor.forClass(Chapter.class);
         verify(chapterMapper, times(50)).insert(inserted.capture());
         assertThat(inserted.getAllValues()).extracting(Chapter::getChapterNo)

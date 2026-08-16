@@ -2,30 +2,47 @@ import type { ApiResponse } from './types';
 
 const baseUrl = '/api/v1';
 
+export class ApiRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status?: number,
+    readonly code?: number,
+    readonly requestId?: string,
+  ) {
+    super(message);
+    this.name = 'ApiRequestError';
+  }
+}
+
 export async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   let response: Response;
   try {
     response = await fetch(`${baseUrl}${path}`, {
+      ...options,
       headers: {
         'Content-Type': 'application/json',
         ...options.headers,
       },
-      ...options,
     });
   } catch (error) {
     throw new Error('NETWORK_UNAVAILABLE');
   }
 
   if (!response.ok) {
-    throw new Error(`请求失败：${response.status}`);
+    throw await responseError(response, `HTTP_${response.status}`);
   }
 
-  const payload = (await response.json()) as ApiResponse<T>;
+  const payload = await parseApiResponse<T>(response);
   if (!payload.success) {
-    throw new Error(`BUSINESS_ERROR:${payload.message || '请求失败'}`);
+    throw new ApiRequestError(
+      payload.message || '请求失败',
+      response.status,
+      payload.code,
+      payload.requestId,
+    );
   }
 
-  return payload.data;
+  return payload.data as T;
 }
 
 export function post<T>(path: string, body?: unknown): Promise<T> {
@@ -50,7 +67,7 @@ export async function downloadRequest(path: string, body: unknown): Promise<Blob
   }
 
   if (!response.ok) {
-    throw new Error(`DOWNLOAD_FAILED:${response.status}`);
+    throw await responseError(response, `DOWNLOAD_FAILED:${response.status}`);
   }
 
   return response.blob();
@@ -76,7 +93,7 @@ export async function streamRequest<T>(
   }
 
   if (!response.ok || !response.body) {
-    throw new Error(`璇锋眰澶辫触锛?{response.status}`);
+    throw await responseError(response, `HTTP_${response.status}`);
   }
 
   const reader = response.body.getReader();
@@ -110,6 +127,38 @@ export async function streamRequest<T>(
   if (buffer.trim()) {
     readEvent(buffer);
   }
+}
+
+async function responseError(response: Response, fallback: string): Promise<Error> {
+  try {
+    const payload = await parseApiResponse<unknown>(response.clone());
+    if (payload.message) {
+      return new ApiRequestError(payload.message, response.status, payload.code, payload.requestId);
+    }
+  } catch {
+    // Non-JSON responses, such as proxy errors, use the HTTP fallback.
+  }
+  return new ApiRequestError(fallback, response.status);
+}
+
+async function parseApiResponse<T>(response: Response): Promise<ApiResponse<T>> {
+  const payload: unknown = await response.json();
+  if (!isApiResponse(payload)) {
+    throw new ApiRequestError('INVALID_API_RESPONSE', response.status);
+  }
+  return payload as ApiResponse<T>;
+}
+
+function isApiResponse(payload: unknown): payload is ApiResponse<unknown> {
+  if (typeof payload !== 'object' || payload === null) {
+    return false;
+  }
+  const envelope = payload as Record<string, unknown>;
+  return typeof envelope.code === 'number'
+    && typeof envelope.message === 'string'
+    && typeof envelope.success === 'boolean'
+    && typeof envelope.timestamp === 'number'
+    && typeof envelope.requestId === 'string';
 }
 
 export function patch<T>(path: string, body?: unknown): Promise<T> {

@@ -1,6 +1,7 @@
 package com.jjxmas.ainovelstudio.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.jjxmas.ainovelstudio.mapper.ContentVersionMapper;
 import com.jjxmas.ainovelstudio.mapper.EntityRelationMapper;
 import com.jjxmas.ainovelstudio.mapper.EntityStateRecordMapper;
 import com.jjxmas.ainovelstudio.mapper.OrganizationMapper;
@@ -10,6 +11,7 @@ import com.jjxmas.ainovelstudio.mapper.StoryItemMapper;
 import com.jjxmas.ainovelstudio.mapper.StoryLocationMapper;
 import com.jjxmas.ainovelstudio.pojo.dto.ChapterFactExtraction;
 import com.jjxmas.ainovelstudio.pojo.entity.Chapter;
+import com.jjxmas.ainovelstudio.pojo.entity.ContentVersion;
 import com.jjxmas.ainovelstudio.pojo.entity.EntityRelation;
 import com.jjxmas.ainovelstudio.pojo.entity.EntityStateRecord;
 import com.jjxmas.ainovelstudio.pojo.entity.Organization;
@@ -23,6 +25,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -36,6 +39,7 @@ public class StoryFactProjectionService {
     private final OrganizationMapper organizationMapper;
     private final StoryLocationMapper storyLocationMapper;
     private final StoryItemMapper storyItemMapper;
+    private final ContentVersionMapper contentVersionMapper;
 
     public StoryFactProjectionService(
             StoryEventMapper storyEventMapper,
@@ -44,7 +48,8 @@ public class StoryFactProjectionService {
             StoryCharacterMapper storyCharacterMapper,
             OrganizationMapper organizationMapper,
             StoryLocationMapper storyLocationMapper,
-            StoryItemMapper storyItemMapper) {
+            StoryItemMapper storyItemMapper,
+            ContentVersionMapper contentVersionMapper) {
         this.storyEventMapper = storyEventMapper;
         this.entityStateRecordMapper = entityStateRecordMapper;
         this.entityRelationMapper = entityRelationMapper;
@@ -52,6 +57,7 @@ public class StoryFactProjectionService {
         this.organizationMapper = organizationMapper;
         this.storyLocationMapper = storyLocationMapper;
         this.storyItemMapper = storyItemMapper;
+        this.contentVersionMapper = contentVersionMapper;
     }
 
     @Transactional
@@ -61,11 +67,12 @@ public class StoryFactProjectionService {
         }
 
         EntityLookup lookup = loadLookup(chapter.getProjectId());
+        Long sourceContentVersionId = resolveSourceContentVersionId(chapter);
         cleanupExistingChapterProjection(chapter);
-        List<StoryEvent> createdEvents = projectEvents(chapter, extraction, lookup);
+        List<StoryEvent> createdEvents = projectEvents(chapter, extraction, lookup, sourceContentVersionId);
         Long primaryEventId = createdEvents.isEmpty() ? null : createdEvents.get(0).getId();
-        projectStateChanges(chapter, extraction, lookup, primaryEventId);
-        projectRelationChanges(chapter, extraction, lookup, primaryEventId);
+        projectStateChanges(chapter, extraction, lookup, primaryEventId, sourceContentVersionId);
+        projectRelationChanges(chapter, extraction, lookup, primaryEventId, sourceContentVersionId);
     }
 
     private void cleanupExistingChapterProjection(Chapter chapter) {
@@ -81,13 +88,37 @@ public class StoryFactProjectionService {
                 .eq(EntityStateRecord::getProjectId, chapter.getProjectId())
                 .eq(EntityStateRecord::getChapterId, chapter.getId()));
 
-        if (!chapterEventIds.isEmpty()) {
-            entityRelationMapper.delete(new LambdaQueryWrapper<EntityRelation>()
-                    .eq(EntityRelation::getProjectId, chapter.getProjectId())
-                    .and(query -> query.in(EntityRelation::getStartEventId, chapterEventIds)
+        List<EntityRelation> affectedRelations = entityRelationMapper.selectList(new LambdaQueryWrapper<EntityRelation>()
+                .eq(EntityRelation::getProjectId, chapter.getProjectId())
+                .and(query -> {
+                    query.eq(EntityRelation::getStartChapterId, chapter.getId())
                             .or()
-                            .in(EntityRelation::getEndEventId, chapterEventIds)));
+                            .eq(EntityRelation::getEndChapterId, chapter.getId());
+                    if (!chapterEventIds.isEmpty()) {
+                        query.or().in(EntityRelation::getStartEventId, chapterEventIds)
+                                .or()
+                                .in(EntityRelation::getEndEventId, chapterEventIds);
+                    }
+                }));
 
+        for (EntityRelation relation : affectedRelations) {
+            boolean startedHere = Objects.equals(chapter.getId(), relation.getStartChapterId())
+                    || chapterEventIds.contains(relation.getStartEventId());
+            boolean endedHere = Objects.equals(chapter.getId(), relation.getEndChapterId())
+                    || chapterEventIds.contains(relation.getEndEventId());
+            if (startedHere) {
+                entityRelationMapper.deleteById(relation.getId());
+            } else if (endedHere) {
+                relation.setRelationStatus("active")
+                        .setEndEventId(null)
+                        .setEndChapterId(null)
+                        .setEndChapterNo(null)
+                        .setEndContentVersionId(null);
+                entityRelationMapper.updateById(relation);
+            }
+        }
+
+        if (!chapterEventIds.isEmpty()) {
             storyEventMapper.delete(new LambdaQueryWrapper<StoryEvent>()
                     .eq(StoryEvent::getProjectId, chapter.getProjectId())
                     .eq(StoryEvent::getChapterId, chapter.getId())
@@ -95,7 +126,11 @@ public class StoryFactProjectionService {
         }
     }
 
-    private List<StoryEvent> projectEvents(Chapter chapter, ChapterFactExtraction extraction, EntityLookup lookup) {
+    private List<StoryEvent> projectEvents(
+            Chapter chapter,
+            ChapterFactExtraction extraction,
+            EntityLookup lookup,
+            Long sourceContentVersionId) {
         List<StoryEvent> created = new ArrayList<>();
         for (ChapterFactExtraction.EventFact item : defaultList(extraction.getEvents())) {
             if (item == null || isBlank(item.getName())) {
@@ -109,6 +144,7 @@ public class StoryFactProjectionService {
                     .setEventTimeText(blankToEmpty(item.getEventTimeText()))
                     .setLocationId(resolveLocationId(lookup, item.getLocationText()))
                     .setChapterId(chapter.getId())
+                    .setSourceContentVersionId(sourceContentVersionId)
                     .setIsPlanned(false)
                     .setImportance(item.getImportance() == null ? 0 : item.getImportance());
             storyEventMapper.insert(event);
@@ -121,7 +157,8 @@ public class StoryFactProjectionService {
             Chapter chapter,
             ChapterFactExtraction extraction,
             EntityLookup lookup,
-            Long primaryEventId) {
+            Long primaryEventId,
+            Long sourceContentVersionId) {
         for (ChapterFactExtraction.StateChangeFact item : defaultList(extraction.getStateChanges())) {
             if (item == null) {
                 continue;
@@ -139,6 +176,7 @@ public class StoryFactProjectionService {
                     .setNewValue(item.getNewValue() == null ? Map.of() : item.getNewValue())
                     .setEventId(primaryEventId)
                     .setChapterId(chapter.getId())
+                    .setSourceContentVersionId(sourceContentVersionId)
                     .setEffectiveAt(LocalDateTime.now());
             entityStateRecordMapper.insert(record);
         }
@@ -148,7 +186,8 @@ public class StoryFactProjectionService {
             Chapter chapter,
             ChapterFactExtraction extraction,
             EntityLookup lookup,
-            Long primaryEventId) {
+            Long primaryEventId,
+            Long sourceContentVersionId) {
         for (ChapterFactExtraction.RelationChangeFact item : defaultList(extraction.getRelationChanges())) {
             if (item == null || isBlank(item.getRelationType())) {
                 continue;
@@ -174,6 +213,9 @@ public class StoryFactProjectionService {
                 if (existing != null && "active".equalsIgnoreCase(blankToDefault(existing.getRelationStatus(), "active"))) {
                     existing.setRelationStatus("ended")
                             .setEndEventId(primaryEventId)
+                            .setEndChapterId(chapter.getId())
+                            .setEndChapterNo(chapter.getChapterNo())
+                            .setEndContentVersionId(sourceContentVersionId)
                             .setNote(blankToDefault(item.getNote(), existing.getNote()));
                     entityRelationMapper.updateById(existing);
                 }
@@ -191,7 +233,10 @@ public class StoryFactProjectionService {
                         .setRelationStatus("active")
                         .setVisibilityLevel("public")
                         .setNote(blankToEmpty(item.getNote()))
-                        .setStartEventId(primaryEventId);
+                        .setStartEventId(primaryEventId)
+                        .setStartChapterId(chapter.getId())
+                        .setStartChapterNo(chapter.getChapterNo())
+                        .setStartContentVersionId(sourceContentVersionId);
                 entityRelationMapper.insert(relation);
                 continue;
             }
@@ -200,13 +245,32 @@ public class StoryFactProjectionService {
             existing.setRelationStatus("active")
                     .setNote(blankToDefault(item.getNote(), existing.getNote()));
             if (existing.getStartEventId() == null) {
-                existing.setStartEventId(primaryEventId);
+                existing.setStartEventId(primaryEventId)
+                        .setStartChapterId(chapter.getId())
+                        .setStartChapterNo(chapter.getChapterNo())
+                        .setStartContentVersionId(sourceContentVersionId);
             }
             if (wasEnded) {
-                existing.setEndEventId(null);
+                existing.setEndEventId(null)
+                        .setEndChapterId(null)
+                        .setEndChapterNo(null)
+                        .setEndContentVersionId(null);
             }
             entityRelationMapper.updateById(existing);
         }
+    }
+
+    private Long resolveSourceContentVersionId(Chapter chapter) {
+        LambdaQueryWrapper<ContentVersion> query = new LambdaQueryWrapper<ContentVersion>()
+                .eq(ContentVersion::getEntityType, "chapter")
+                .eq(ContentVersion::getEntityId, chapter.getId());
+        if (chapter.getLastContentVersionNo() != null) {
+            query.eq(ContentVersion::getVersionNo, chapter.getLastContentVersionNo());
+        }
+        ContentVersion version = contentVersionMapper.selectOne(query
+                .orderByDesc(ContentVersion::getVersionNo)
+                .last("LIMIT 1"));
+        return version == null ? null : version.getId();
     }
 
     private EntityLookup loadLookup(Long projectId) {

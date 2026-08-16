@@ -14,8 +14,9 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 public class ChapterFactExtractionService {
@@ -25,23 +26,29 @@ public class ChapterFactExtractionService {
     private final VersionService versionService;
     private final ChapterFactExtractionRunMapper chapterFactExtractionRunMapper;
     private final ContentVersionMapper contentVersionMapper;
+    private final TransactionTemplate transactionTemplate;
 
     public ChapterFactExtractionService(
             AiOrchestratorService aiOrchestratorService,
             GenerationJobService generationJobService,
             VersionService versionService,
             ChapterFactExtractionRunMapper chapterFactExtractionRunMapper,
-            ContentVersionMapper contentVersionMapper) {
+            ContentVersionMapper contentVersionMapper,
+            TransactionTemplate transactionTemplate) {
         this.aiOrchestratorService = aiOrchestratorService;
         this.generationJobService = generationJobService;
         this.versionService = versionService;
         this.chapterFactExtractionRunMapper = chapterFactExtractionRunMapper;
         this.contentVersionMapper = contentVersionMapper;
+        this.transactionTemplate = transactionTemplate;
     }
 
-    @Transactional
     public ChapterFactExtraction extractAndStore(Chapter chapter, Long modelConfigId) {
-        Long sourceContentVersionId = latestChapterContentVersionId(chapter.getId());
+        Long sourceContentVersionId = chapterContentVersionId(chapter);
+        ChapterFactExtractionRun existingRun = findExistingRun(chapter.getId(), sourceContentVersionId);
+        if (existingRun != null) {
+            return normalizeExtraction(existingRun.getNormalizedOutputJson());
+        }
         AiGenerateResult result = aiOrchestratorService.extractChapterFacts(
                 modelConfigId,
                 blankToEmpty(chapter.getTitle()),
@@ -63,43 +70,66 @@ public class ChapterFactExtractionService {
         output.put("issues", normalized.getIssues());
         output.put("modelName", result == null ? "" : blankToEmpty(result.getModelName()));
 
-        Long jobId = generationJobService.recordFinishedJob(
-                chapter.getProjectId(),
-                "chapter_fact_extraction",
-                "chapter",
-                chapter.getId(),
-                modelConfigId,
-                input,
-                output);
+        try {
+            return transactionTemplate.execute(statusContext -> {
+                Long jobId = generationJobService.recordFinishedJob(
+                        chapter.getProjectId(),
+                        "chapter_fact_extraction",
+                        "chapter",
+                        chapter.getId(),
+                        modelConfigId,
+                        input,
+                        output);
 
-        ChapterFactExtractionRun run = new ChapterFactExtractionRun()
-                .setProjectId(chapter.getProjectId())
-                .setChapterId(chapter.getId())
-                .setSourceContentVersionId(sourceContentVersionId)
-                .setModelConfigId(modelConfigId)
-                .setStatus(status)
-                .setRawOutputJson(rawOutputJson)
-                .setNormalizedOutputJson(JsonUtils.toJson(normalized))
-                .setIssuesJson(JsonUtils.toJson(normalized.getIssues()))
-                .setGenerationJobId(jobId);
-        chapterFactExtractionRunMapper.insert(run);
+                ChapterFactExtractionRun run = new ChapterFactExtractionRun()
+                        .setProjectId(chapter.getProjectId())
+                        .setChapterId(chapter.getId())
+                        .setSourceContentVersionId(sourceContentVersionId)
+                        .setModelConfigId(modelConfigId)
+                        .setStatus(status)
+                        .setRawOutputJson(rawOutputJson)
+                        .setNormalizedOutputJson(JsonUtils.toJson(normalized))
+                        .setIssuesJson(JsonUtils.toJson(normalized.getIssues()))
+                        .setGenerationJobId(jobId);
+                chapterFactExtractionRunMapper.insert(run);
 
-        versionService.recordVersion(
-                chapter.getProjectId(),
-                "chapter_fact_extraction_run",
-                run.getId(),
-                extractionRunSnapshot(run, normalized),
-                "ai_generate",
-                "章节事实抽取",
-                modelConfigId,
-                jobId);
-        return normalized;
+                versionService.recordVersion(
+                        chapter.getProjectId(),
+                        "chapter_fact_extraction_run",
+                        run.getId(),
+                        extractionRunSnapshot(run, normalized),
+                        "ai_generate",
+                        "章节事实抽取",
+                        modelConfigId,
+                        jobId);
+                return normalized;
+            });
+        } catch (DuplicateKeyException duplicate) {
+            ChapterFactExtractionRun concurrentRun = findExistingRun(chapter.getId(), sourceContentVersionId);
+            if (concurrentRun != null) {
+                return normalizeExtraction(concurrentRun.getNormalizedOutputJson());
+            }
+            throw duplicate;
+        }
     }
 
-    private Long latestChapterContentVersionId(Long chapterId) {
+    private ChapterFactExtractionRun findExistingRun(Long chapterId, Long sourceContentVersionId) {
+        if (sourceContentVersionId == null) {
+            return null;
+        }
+        return chapterFactExtractionRunMapper.selectOne(new LambdaQueryWrapper<ChapterFactExtractionRun>()
+                .eq(ChapterFactExtractionRun::getChapterId, chapterId)
+                .eq(ChapterFactExtractionRun::getSourceContentVersionId, sourceContentVersionId)
+                .last("LIMIT 1"));
+    }
+
+    private Long chapterContentVersionId(Chapter chapter) {
         ContentVersion latest = contentVersionMapper.selectOne(new LambdaQueryWrapper<ContentVersion>()
                 .eq(ContentVersion::getEntityType, "chapter")
-                .eq(ContentVersion::getEntityId, chapterId)
+                .eq(ContentVersion::getEntityId, chapter.getId())
+                .eq(chapter.getLastContentVersionNo() != null,
+                        ContentVersion::getVersionNo,
+                        chapter.getLastContentVersionNo())
                 .orderByDesc(ContentVersion::getVersionNo)
                 .last("LIMIT 1"));
         return latest == null ? null : latest.getId();

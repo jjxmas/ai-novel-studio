@@ -11,6 +11,7 @@ import com.jjxmas.ainovelstudio.pojo.entity.Chapter;
 import com.jjxmas.ainovelstudio.pojo.entity.Project;
 import com.jjxmas.ainovelstudio.service.ExportService;
 import com.jjxmas.ainovelstudio.service.VersionService;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import org.springframework.stereotype.Service;
@@ -37,7 +38,8 @@ public class ExportServiceImpl implements ExportService {
             throw new BusinessException(ErrorCode.NOT_FOUND, "PROJECT_NOT_FOUND");
         }
         String extension = normalizeFormat(request.getFormat());
-        List<Chapter> chapters = exportableChapters(request);
+        String scope = normalizeScope(request.getScope());
+        List<Chapter> chapters = exportableChapters(request, scope);
         if (chapters.isEmpty()) {
             throw new BusinessException(ErrorCode.WORKFLOW_GATE_NOT_MET, "NO_EXPORTABLE_CHAPTERS");
         }
@@ -45,13 +47,13 @@ public class ExportServiceImpl implements ExportService {
         String content = "md".equals(extension) ? buildMarkdown(project, chapters) : buildTxt(project, chapters);
         String fileName = sanitizeFileName(project.getTitle()) + "." + extension;
 
-        project.setStatus("exported");
+        project.setWorkflowStage("export").setLastExportedAt(LocalDateTime.now());
         projectMapper.updateById(project);
         versionService.recordVersion(
                 project.getId(),
                 "export",
                 project.getId(),
-                Map.of("fileName", fileName, "format", extension, "scope", normalizeScope(request.getScope()), "content", content),
+                Map.of("fileName", fileName, "format", extension, "scope", scope, "content", content),
                 "export",
                 "Export " + extension.toUpperCase() + " content snapshot",
                 null,
@@ -61,17 +63,23 @@ public class ExportServiceImpl implements ExportService {
                 .fileName(fileName)
                 .filePath("/exports/download")
                 .format(extension)
-                .scope(normalizeScope(request.getScope()))
+                .scope(scope)
                 .content(content)
                 .build();
     }
 
-    private List<Chapter> exportableChapters(ExportRequest request) {
-        return chapterMapper.selectList(new LambdaQueryWrapper<Chapter>()
+    private List<Chapter> exportableChapters(ExportRequest request, String scope) {
+        LambdaQueryWrapper<Chapter> query = new LambdaQueryWrapper<Chapter>()
                 .eq(Chapter::getProjectId, request.getProjectId())
                 .isNotNull(Chapter::getContent)
                 .ne(Chapter::getContent, "")
-                .orderByAsc(Chapter::getChapterNo));
+                .orderByAsc(Chapter::getChapterNo);
+        if ("chapter".equals(scope)) {
+            query.eq(Chapter::getId, requireScopeEntityId(request));
+        } else if ("volume".equals(scope)) {
+            query.eq(Chapter::getVolumeId, requireScopeEntityId(request));
+        }
+        return chapterMapper.selectList(query);
     }
 
     private String normalizeFormat(String format) {
@@ -90,8 +98,16 @@ public class ExportServiceImpl implements ExportService {
         return switch (value) {
             case "chapter" -> "chapter";
             case "volume" -> "volume";
-            default -> "full_project";
+            case "full_project", "full-project", "full" -> "full_project";
+            default -> throw new BusinessException(ErrorCode.PARAMETER_ERROR, "UNSUPPORTED_EXPORT_SCOPE");
         };
+    }
+
+    private Long requireScopeEntityId(ExportRequest request) {
+        if (request.getScopeEntityId() == null) {
+            throw new BusinessException(ErrorCode.PARAMETER_ERROR, "SCOPE_ENTITY_ID_REQUIRED");
+        }
+        return request.getScopeEntityId();
     }
 
     private String buildMarkdown(Project project, List<Chapter> chapters) {

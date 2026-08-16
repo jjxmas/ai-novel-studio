@@ -1,5 +1,6 @@
 package com.jjxmas.ainovelstudio.pojo.dto;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -32,5 +33,9 @@ public class ProjectResponse {
 
     private String status;
 
+    private String workflowStage;
+
     private Long selectedIdeaId;
+
+    private LocalDateTime lastExportedAt;
 }

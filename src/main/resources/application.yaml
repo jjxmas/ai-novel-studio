@@ -39,5 +39,15 @@ mybatis-plus:
 
 app:
   ai:
-    # 第三版模型调用统一走后端 NovelAiClient；无可用模型或调用失败时回退 mock。
+    # real 失败即报错；仅显式设置 mock 时使用 MockNovelAiClient。
+    mode: ${AI_NOVEL_AI_MODE:real}
     enabled: true
+  jobs:
+    enabled: ${AI_NOVEL_JOBS_ENABLED:true}
+    initial-delay-ms: ${AI_NOVEL_JOBS_INITIAL_DELAY_MS:30000}
+    poll-interval-ms: ${AI_NOVEL_JOBS_POLL_INTERVAL_MS:1000}
+    max-attempts: ${AI_NOVEL_JOBS_MAX_ATTEMPTS:3}
+    retry-delay-ms: ${AI_NOVEL_JOBS_RETRY_DELAY_MS:30000}
+    lease-timeout-ms: ${AI_NOVEL_JOBS_LEASE_TIMEOUT_MS:7200000}
+    recovery-initial-delay-ms: ${AI_NOVEL_JOBS_RECOVERY_INITIAL_DELAY_MS:60000}
+    recovery-interval-ms: ${AI_NOVEL_JOBS_RECOVERY_INTERVAL_MS:60000}

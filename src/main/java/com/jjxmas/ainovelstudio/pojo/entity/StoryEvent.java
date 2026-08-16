@@ -26,6 +26,8 @@ public class StoryEvent extends BaseEntity {
 
     private Long chapterId;
 
+    private Long sourceContentVersionId;
+
     private Boolean isPlanned;
 
     private Integer importance;

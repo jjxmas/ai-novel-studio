@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
 import { novelApi } from '@/api/novelApi';
-import type { ChapterGenerationBatch, StoryDirtyMarkSnapshot, StoryRebuildResult } from '@/api/types';
+import type { Chapter, ChapterGenerationBatch, StoryDirtyMarkSnapshot, StoryRebuildResult, StoryRebuildRun } from '@/api/types';
 import PageShell from '@/components/PageShell.vue';
 import { useNovelWorkspace } from '@/composables/useNovelWorkspace';
 
@@ -22,7 +22,12 @@ const activeChapterId = ref<number | null>(null);
 const chapterSearch = ref('');
 const chapterPage = ref(1);
 const chapterPageSize = ref(20);
+const chapterRows = ref<Chapter[]>([]);
+const chapterTotal = ref(0);
+const chapterListLoading = ref(false);
+const activeChapterDetail = ref<Chapter | null>(null);
 const rewriteSuggestion = ref('');
+const chapterContentDraft = ref('');
 const isGeneratingContent = ref(false);
 const batchStartChapterNo = ref(1);
 const batchCount = ref(10);
@@ -36,11 +41,16 @@ const dirtyLoading = ref(false);
 const rebuildBusy = ref(false);
 const rebuildStartChapterNo = ref<number | null>(null);
 const rebuildResult = ref<StoryRebuildResult | null>(null);
+const activeRebuildRun = ref<StoryRebuildRun | null>(null);
 let batchPollTimer: number | null = null;
+let rebuildPollTimer: number | null = null;
+let chapterSearchTimer: number | null = null;
+let chapterListRequest = 0;
 
 const terminalBatchStatuses = new Set(['cancelled', 'completed', 'failed', 'partial_failed']);
+const terminalRebuildStatuses = new Set(['succeeded', 'failed']);
 const enabledModels = computed(() => state.modelConfigs.filter((model) => model.enabled));
-const rebuildableChapters = computed(() => state.chapters.filter((chapter) => chapter.content.trim().length > 0));
+const rebuildableChapters = computed(() => state.chapters.filter((chapter) => chapter.hasContent));
 const batchControlsLocked = computed(() => batchBusy.value
   || Boolean(activeBatch.value && !terminalBatchStatuses.has(activeBatch.value.status)));
 const batchEndChapterNo = computed(() => batchStartChapterNo.value + Math.max(batchCount.value, 1) - 1);
@@ -80,29 +90,17 @@ function batchItemStatusText(status: string) {
   return labels[status] ?? status;
 }
 
-const activeChapter = computed(() => {
-  const fallback = state.chapters[0] ?? null;
-  return state.chapters.find((chapter) => chapter.id === activeChapterId.value) ?? fallback;
-});
+const activeChapter = computed(() => activeChapterDetail.value);
 
-const filteredChapters = computed(() => {
-  const keyword = chapterSearch.value.trim().toLowerCase();
-  if (!keyword) {
-    return state.chapters;
-  }
-  return state.chapters.filter((chapter) => {
-    const chapterNo = String(chapter.chapterNo ?? '');
-    return chapterNo.includes(keyword)
-      || chapter.title.toLowerCase().includes(keyword)
-      || chapter.outline.toLowerCase().includes(keyword);
-  });
-});
+watch(
+  () => [activeChapter.value?.id, activeChapter.value?.content] as const,
+  ([, content]) => {
+    chapterContentDraft.value = content ?? '';
+  },
+  { immediate: true },
+);
 
-const chapterTotalPages = computed(() => Math.max(1, Math.ceil(filteredChapters.value.length / chapterPageSize.value)));
-const pagedChapters = computed(() => {
-  const start = (chapterPage.value - 1) * chapterPageSize.value;
-  return filteredChapters.value.slice(start, start + chapterPageSize.value);
-});
+const chapterTotalPages = computed(() => Math.max(1, Math.ceil(chapterTotal.value / chapterPageSize.value)));
 
 const activeChapterSummary = computed(() => {
   if (!activeChapter.value || !state.projectMemory) {
@@ -118,21 +116,71 @@ const memoryCounts = computed(() => ({
   hasGlobal: Boolean(state.projectMemory?.globalMemory),
 }));
 
+async function selectChapter(chapterId: number) {
+  activeChapterId.value = chapterId;
+  activeChapterDetail.value = null;
+  try {
+    const detail = await novelApi.getChapter(chapterId);
+    if (activeChapterId.value === chapterId) {
+      activeChapterDetail.value = detail;
+    }
+  } catch (error) {
+    if (activeChapterId.value === chapterId) {
+      state.lastMessage = error instanceof Error ? error.message.replace('BUSINESS_ERROR:', '') : '章节正文加载失败';
+    }
+  }
+}
+
+async function loadChapterRows(selectFirst = false) {
+  if (!activeProject.value) return;
+  const projectId = activeProject.value.id;
+  const requestId = ++chapterListRequest;
+  chapterListLoading.value = true;
+  try {
+    const result = await novelApi.listChapterPage(
+      projectId,
+      chapterPage.value,
+      chapterPageSize.value,
+      chapterSearch.value,
+    );
+    if (activeProject.value?.id !== projectId || requestId !== chapterListRequest) return;
+    chapterRows.value = result.items;
+    chapterTotal.value = result.total;
+    const selectedStillVisible = result.items.some((chapter) => chapter.id === activeChapterId.value);
+    if ((selectFirst || !activeChapterId.value || !selectedStillVisible) && result.items[0]) {
+      await selectChapter(result.items[0].id);
+    } else if (result.items.length === 0) {
+      activeChapterId.value = null;
+      activeChapterDetail.value = null;
+    }
+  } catch (error) {
+    state.lastMessage = error instanceof Error ? error.message.replace('BUSINESS_ERROR:', '') : '章节列表加载失败';
+  } finally {
+    if (activeProject.value?.id === projectId && requestId === chapterListRequest) {
+      chapterListLoading.value = false;
+    }
+  }
+}
+
 async function submitGenerateContent() {
   if (!activeChapter.value || isGeneratingContent.value) {
     return;
   }
   isGeneratingContent.value = true;
   try {
-    await generateChapterContent(activeChapter.value.id, rewriteSuggestion.value);
+    const updated = await generateChapterContent(activeChapter.value.id, rewriteSuggestion.value, activeChapter.value);
+    if (updated) activeChapterDetail.value = updated;
     rewriteSuggestion.value = '';
+    await loadChapterRows();
   } finally {
     isGeneratingContent.value = false;
   }
 }
 
 async function submitCheck() {
-  await createCheck();
+  if (activeChapter.value) {
+    await createCheck(activeChapter.value.id);
+  }
 }
 
 function stopBatchPolling() {
@@ -152,6 +200,7 @@ async function refreshActiveBatch() {
     stopBatchPolling();
     await Promise.all([
       loadChapters().catch(() => undefined),
+      loadChapterRows(),
       loadProjectMemory().catch(() => undefined),
       loadDirtyMarks().catch(() => undefined),
     ]);
@@ -165,6 +214,59 @@ function startBatchPolling() {
       state.lastMessage = error instanceof Error ? error.message : '批次进度查询失败';
     });
   }, 1500);
+}
+
+function stopRebuildPolling() {
+  if (rebuildPollTimer != null) {
+    window.clearInterval(rebuildPollTimer);
+    rebuildPollTimer = null;
+  }
+}
+
+async function refreshActiveRebuild() {
+  if (!activeProject.value || !activeRebuildRun.value) {
+    return;
+  }
+  const projectId = activeProject.value.id;
+  const run = await novelApi.getStoryRebuildRun(projectId, activeRebuildRun.value.runId);
+  if (activeProject.value?.id !== projectId) {
+    return;
+  }
+  activeRebuildRun.value = run;
+  rebuildResult.value = run.result ?? null;
+  if (terminalRebuildStatuses.has(run.status)) {
+    stopRebuildPolling();
+    rebuildBusy.value = false;
+    state.lastMessage = run.status === 'succeeded'
+      ? run.result?.note ?? '故事状态回算完成'
+      : run.errorMessage ?? '故事状态回算失败';
+    await Promise.all([
+      loadDirtyMarks(),
+      loadProjectMemory().catch(() => undefined),
+    ]);
+  }
+}
+
+function startRebuildPolling() {
+  stopRebuildPolling();
+  rebuildPollTimer = window.setInterval(() => {
+    void refreshActiveRebuild().catch((error) => {
+      state.lastMessage = error instanceof Error ? error.message : '回算进度查询失败';
+    });
+  }, 1500);
+}
+
+async function loadLatestRebuild(projectId: number) {
+  const run = await novelApi.getLatestStoryRebuildRun(projectId).catch(() => null);
+  if (activeProject.value?.id !== projectId) {
+    return;
+  }
+  activeRebuildRun.value = run;
+  rebuildResult.value = run?.result ?? null;
+  rebuildBusy.value = Boolean(run && !terminalRebuildStatuses.has(run.status));
+  if (rebuildBusy.value) {
+    startRebuildPolling();
+  }
 }
 
 async function loadLatestBatch(projectId: number) {
@@ -206,20 +308,23 @@ async function submitRebuild() {
   rebuildBusy.value = true;
   rebuildResult.value = null;
   try {
-    rebuildResult.value = await novelApi.rebuildStoryState(
+    activeRebuildRun.value = await novelApi.enqueueStoryRebuild(
       activeProject.value.id,
       rebuildStartChapterNo.value,
       batchModelConfigId.value,
     );
-    state.lastMessage = rebuildResult.value.note;
-    await Promise.all([
-      loadDirtyMarks(),
-      loadProjectMemory().catch(() => undefined),
-    ]);
+    rebuildResult.value = activeRebuildRun.value.result ?? null;
+    if (terminalRebuildStatuses.has(activeRebuildRun.value.status)) {
+      rebuildBusy.value = false;
+      state.lastMessage = rebuildResult.value?.note ?? '当前无需回算';
+      await loadDirtyMarks();
+    } else {
+      state.lastMessage = `回算任务 #${activeRebuildRun.value.runId} 已进入队列。`;
+      startRebuildPolling();
+    }
   } catch (error) {
-    state.lastMessage = error instanceof Error ? error.message.replace('BUSINESS_ERROR:', '') : '故事状态回算失败';
-  } finally {
     rebuildBusy.value = false;
+    state.lastMessage = error instanceof Error ? error.message.replace('BUSINESS_ERROR:', '') : '故事状态回算失败';
   }
 }
 
@@ -271,20 +376,22 @@ async function controlBatch(action: 'pause' | 'resume' | 'cancel' | 'retry') {
 }
 
 function editActiveChapterContent(event: Event) {
-  if (!activeChapter.value) {
-    return;
-  }
-  activeChapter.value.content = (event.target as HTMLTextAreaElement).value;
+  chapterContentDraft.value = (event.target as HTMLTextAreaElement).value;
 }
 
-function saveActiveChapterContent() {
+async function saveActiveChapterContent() {
   if (activeChapter.value) {
-    updateChapterContent(activeChapter.value.id, activeChapter.value.content);
+    const updated = await updateChapterContent(
+      activeChapter.value.id,
+      chapterContentDraft.value,
+      activeChapter.value,
+    );
+    if (updated) activeChapterDetail.value = updated;
+    await loadChapterRows();
   }
 }
 
 onMounted(() => {
-  void loadChapters().catch(() => undefined);
   void loadProjectMemory().catch(() => undefined);
   void loadModelConfigs().catch(() => undefined);
 });
@@ -300,14 +407,25 @@ watch(enabledModels, (models) => {
 }, { immediate: true });
 
 watch(() => activeProject.value?.id, (projectId) => {
+  chapterListRequest += 1;
   stopBatchPolling();
+  stopRebuildPolling();
   activeBatch.value = null;
   dirtySnapshot.value = null;
   dirtyLoading.value = false;
   rebuildResult.value = null;
+  activeRebuildRun.value = null;
+  activeChapterId.value = null;
+  activeChapterDetail.value = null;
+  chapterRows.value = [];
+  chapterTotal.value = 0;
+  chapterPage.value = 1;
+  rebuildBusy.value = false;
   rebuildStartChapterNo.value = null;
   if (projectId) {
+    void loadChapters().then(() => loadChapterRows(true)).catch(() => undefined);
     void loadLatestBatch(projectId);
+    void loadLatestRebuild(projectId);
     void loadDirtyMarks().catch(() => undefined);
   }
 }, { immediate: true });
@@ -322,8 +440,21 @@ watch(() => state.chapters, (chapters) => {
   }
 }, { deep: true, immediate: true });
 
-watch([chapterSearch, chapterPageSize], () => {
-  chapterPage.value = 1;
+watch(chapterSearch, () => {
+  if (chapterSearchTimer != null) window.clearTimeout(chapterSearchTimer);
+  chapterSearchTimer = window.setTimeout(() => {
+    if (chapterPage.value !== 1) chapterPage.value = 1;
+    else void loadChapterRows();
+  }, 300);
+});
+
+watch(chapterPageSize, () => {
+  if (chapterPage.value !== 1) chapterPage.value = 1;
+  else void loadChapterRows();
+});
+
+watch(chapterPage, () => {
+  void loadChapterRows();
 });
 
 watch(chapterTotalPages, (totalPages) => {
@@ -332,7 +463,11 @@ watch(chapterTotalPages, (totalPages) => {
   }
 });
 
-onUnmounted(stopBatchPolling);
+onUnmounted(() => {
+  stopBatchPolling();
+  stopRebuildPolling();
+  if (chapterSearchTimer != null) window.clearTimeout(chapterSearchTimer);
+});
 </script>
 
 <template>
@@ -454,7 +589,7 @@ onUnmounted(stopBatchPolling);
             {{ dirtyLoading ? '刷新中' : '刷新标记' }}
           </button>
           <button class="toolbar__button" type="button" :disabled="rebuildBusy || batchControlsLocked || rebuildStartChapterNo == null || batchModelConfigId == null" @click="submitRebuild">
-            {{ rebuildBusy ? '回算中' : '开始回算' }}
+            {{ rebuildBusy ? '后台回算中' : '开始回算' }}
           </button>
         </div>
       </div>
@@ -465,6 +600,14 @@ onUnmounted(stopBatchPolling);
           <span>影响第 {{ mark.dirtyFromChapterNo }} 章起</span>
           <span>{{ mark.reasonNote || mark.reasonType }}</span>
         </div>
+      </div>
+
+      <div v-if="activeRebuildRun && !rebuildResult" class="rebuild-result" aria-live="polite">
+        <strong>{{ activeRebuildRun.status === 'failed' ? '回算失败' : '后台回算中' }}</strong>
+        <span>阶段：{{ activeRebuildRun.phase }}，已处理 {{ activeRebuildRun.processedChapterCount }} 章，跳过 {{ activeRebuildRun.skippedChapterCount }} 章。</span>
+        <span v-if="activeRebuildRun.phase === 'fact_projection' && activeRebuildRun.nextFactChapterNo">下一事实章节：第 {{ activeRebuildRun.nextFactChapterNo }} 章</span>
+        <span v-if="activeRebuildRun.phase === 'narrative_memory' && activeRebuildRun.nextMemoryChapterNo">下一记忆章节：第 {{ activeRebuildRun.nextMemoryChapterNo }} 章</span>
+        <span v-if="activeRebuildRun.errorMessage">{{ activeRebuildRun.errorMessage }}</span>
       </div>
 
       <div v-if="rebuildResult" class="rebuild-result" :class="{ 'rebuild-result--ok': rebuildResult.status === 'completed' }" aria-live="polite">
@@ -497,28 +640,31 @@ onUnmounted(stopBatchPolling);
               </select>
             </label>
           </div>
-          <div v-if="state.chapters.length === 0" class="empty-state">
+          <div v-if="chapterListLoading && chapterRows.length === 0" class="empty-state">
+            <div class="empty-state__title">正在加载章节</div>
+          </div>
+          <div v-else-if="chapterTotal === 0 && !chapterSearch.trim()" class="empty-state">
             <div class="empty-state__title">尚未生成章节大纲</div>
             <p class="empty-state__description">请到大纲页生成章节大纲后，再回到这里写正文。</p>
           </div>
-          <div v-else-if="filteredChapters.length === 0" class="empty-state">
+          <div v-else-if="chapterRows.length === 0" class="empty-state">
             <div class="empty-state__title">没有匹配章节</div>
             <p class="empty-state__description">换一个章节号、标题或关键词再试。</p>
           </div>
           <article
-            v-for="chapter in pagedChapters"
+            v-for="chapter in chapterRows"
             :key="chapter.id"
             class="list-item list-item--clickable"
             :class="{ 'card--selected': chapter.id === activeChapter?.id }"
-            @click="activeChapterId = chapter.id"
+            @click="selectChapter(chapter.id)"
           >
             <div>
               <div class="list-item__title">{{ chapter.title }}</div>
               <div class="list-item__text">{{ chapter.outline }}</div>
             </div>
-            <span class="badge">{{ chapter.status === 'outline_ready' ? '待正文' : '有正文' }}</span>
+            <span class="badge">{{ chapter.hasContent ? '有正文' : '待正文' }}</span>
           </article>
-          <div v-if="filteredChapters.length > chapterPageSize" class="pagination">
+          <div v-if="chapterTotal > chapterPageSize" class="pagination">
             <button
               class="toolbar__button toolbar__button--ghost toolbar__button--small"
               type="button"
@@ -527,7 +673,7 @@ onUnmounted(stopBatchPolling);
             >
               上一页
             </button>
-            <span class="helper-text">第 {{ chapterPage }} / {{ chapterTotalPages }} 页，共 {{ filteredChapters.length }} 章</span>
+            <span class="helper-text">第 {{ chapterPage }} / {{ chapterTotalPages }} 页，共 {{ chapterTotal }} 章</span>
             <button
               class="toolbar__button toolbar__button--ghost toolbar__button--small"
               type="button"
@@ -551,7 +697,7 @@ onUnmounted(stopBatchPolling);
           <label class="field">
             <span>章节正文</span>
             <textarea
-              :value="activeChapter.content"
+              :value="chapterContentDraft"
               class="text-editor"
               rows="12"
               placeholder="生成后可以直接编辑正文"

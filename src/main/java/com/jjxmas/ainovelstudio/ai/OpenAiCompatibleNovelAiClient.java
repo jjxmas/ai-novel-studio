@@ -2,6 +2,8 @@ package com.jjxmas.ainovelstudio.ai;
 
 import com.jjxmas.ainovelstudio.pojo.entity.ModelConfig;
 import com.jjxmas.ainovelstudio.mapper.ModelConfigMapper;
+import com.jjxmas.ainovelstudio.common.exception.BusinessException;
+import com.jjxmas.ainovelstudio.common.exception.ErrorCode;
 import java.util.Map;
 import reactor.core.publisher.Flux;
 import org.springframework.ai.chat.client.ChatClient;
@@ -9,6 +11,7 @@ import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.ai.openai.api.OpenAiApi;
 import org.springframework.context.annotation.Primary;
+import org.springframework.beans.factory.annotation.Value;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -21,19 +24,25 @@ public class OpenAiCompatibleNovelAiClient implements NovelAiClient {
 
     private final ModelConfigMapper modelConfigMapper;
     private final MockNovelAiClient mockNovelAiClient;
+    private final String mode;
 
     public OpenAiCompatibleNovelAiClient(
             ModelConfigMapper modelConfigMapper,
-            MockNovelAiClient mockNovelAiClient) {
+            MockNovelAiClient mockNovelAiClient,
+            @Value("${app.ai.mode:real}") String mode) {
         this.modelConfigMapper = modelConfigMapper;
         this.mockNovelAiClient = mockNovelAiClient;
+        this.mode = mode;
     }
 
     @Override
     public AiGenerateResult generate(AiGenerateCommand command) {
+        if ("mock".equalsIgnoreCase(mode)) {
+            return mockNovelAiClient.generate(command);
+        }
         ModelConfig config = resolveConfig(command.getModelConfigId());
         if (config == null || config.getApiKeyCiphertext() == null || config.getApiKeyCiphertext().isBlank()) {
-            return null;
+            throw aiUnavailable("MODEL_CONFIG_UNAVAILABLE");
         }
         try {
             String content = chatClient(command, config)
@@ -43,7 +52,7 @@ public class OpenAiCompatibleNovelAiClient implements NovelAiClient {
                     .call()
                     .content();
             if (content == null || content.isBlank()) {
-                return null;
+                throw aiUnavailable("AI_EMPTY_RESPONSE");
             }
             return AiGenerateResult.builder()
                     .success(true)
@@ -52,20 +61,26 @@ public class OpenAiCompatibleNovelAiClient implements NovelAiClient {
                     .usage(Map.of("springAiChatClient", true))
                     .build();
         } catch (RuntimeException ex) {
-            log.warn("Spring AI ChatClient 调用失败，已回退 mock。modelConfigId={}, modelName={}",
+            if (ex instanceof BusinessException) {
+                throw ex;
+            }
+            log.warn("Spring AI ChatClient 调用失败。modelConfigId={}, modelName={}",
                     config.getId(),
                     config.getModelName(),
                     ex);
-            return null;
+            throw aiUnavailable("AI_GENERATION_FAILED");
         }
     }
 
     @Override
     public Flux<String> stream(AiGenerateCommand command) {
         return Flux.defer(() -> {
+            if ("mock".equalsIgnoreCase(mode)) {
+                return mockNovelAiClient.stream(command);
+            }
             ModelConfig config = resolveConfig(command.getModelConfigId());
             if (config == null || config.getApiKeyCiphertext() == null || config.getApiKeyCiphertext().isBlank()) {
-                return mockNovelAiClient.stream(command);
+                return Flux.error(aiUnavailable("MODEL_CONFIG_UNAVAILABLE"));
             }
             try {
                 return chatClient(command, config)
@@ -75,21 +90,26 @@ public class OpenAiCompatibleNovelAiClient implements NovelAiClient {
                         .stream()
                         .content()
                         .filter(content -> content != null && !content.isEmpty())
-                        .onErrorResume(ex -> {
-                            log.warn("Spring AI streaming call failed, fallback to mock. modelConfigId={}, modelName={}",
-                                    config.getId(),
-                                    config.getModelName(),
-                                    ex);
-                            return mockNovelAiClient.stream(command);
-                        });
+                        .doOnError(ex -> log.warn(
+                                "Spring AI streaming call failed. modelConfigId={}, modelName={}",
+                                config.getId(),
+                                config.getModelName(),
+                                ex))
+                        .onErrorMap(ex -> ex instanceof BusinessException
+                                ? ex
+                                : aiUnavailable("AI_STREAM_FAILED"));
             } catch (RuntimeException ex) {
-                log.warn("Spring AI streaming client creation failed, fallback to mock. modelConfigId={}, modelName={}",
+                log.warn("Spring AI streaming client creation failed. modelConfigId={}, modelName={}",
                         config.getId(),
                         config.getModelName(),
                         ex);
-                return mockNovelAiClient.stream(command);
+                return Flux.error(aiUnavailable("AI_STREAM_FAILED"));
             }
         });
+    }
+
+    private BusinessException aiUnavailable(String message) {
+        return new BusinessException(ErrorCode.AI_TASK_UNAVAILABLE, message);
     }
 
     private ModelConfig resolveConfig(Long modelConfigId) {

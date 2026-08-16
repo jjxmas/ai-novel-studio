@@ -7,7 +7,6 @@ import com.jjxmas.ainovelstudio.pojo.dto.EntityStateRecordResponse;
 import com.jjxmas.ainovelstudio.pojo.dto.EntityStateRecordUpsertRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.OrganizationResponse;
 import com.jjxmas.ainovelstudio.pojo.dto.OrganizationUpsertRequest;
-import com.jjxmas.ainovelstudio.pojo.dto.SettingLibraryGenerateRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.SettingLibraryResponse;
 import com.jjxmas.ainovelstudio.pojo.dto.SettingLibraryRewriteRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.SettingLibrarySnapshotResponse;
@@ -50,14 +49,6 @@ public class SettingLibraryController {
     @GetMapping("/setting-library/ping")
     public ApiResponse<String> ping() {
         return ApiResponse.success("setting-library-ready");
-    }
-
-    @PostMapping("/projects/{projectId}/setting-library/generate")
-    public ApiResponse<SettingLibraryResponse> generateSettingLibrary(
-            @PathVariable Long projectId,
-            @Valid @RequestBody SettingLibraryGenerateRequest request) {
-        request.setProjectId(projectId);
-        return ApiResponse.success("setting-library-generated", settingLibraryService.generateSettingLibrary(request));
     }
 
     @PostMapping("/projects/{projectId}/setting-workflows")

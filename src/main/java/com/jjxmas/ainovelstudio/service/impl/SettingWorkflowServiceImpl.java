@@ -18,9 +18,7 @@ import com.jjxmas.ainovelstudio.mapper.StoryEventMapper;
 import com.jjxmas.ainovelstudio.mapper.StoryItemMapper;
 import com.jjxmas.ainovelstudio.mapper.StoryLocationMapper;
 import com.jjxmas.ainovelstudio.mapper.WorldRuleMapper;
-import com.jjxmas.ainovelstudio.pojo.dto.SettingLibraryGenerateRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.SettingLibraryResponse;
-import com.jjxmas.ainovelstudio.pojo.dto.SettingLibraryUpdateRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.SettingWorkflowCreateRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.SettingWorkflowResponse;
 import com.jjxmas.ainovelstudio.pojo.entity.EntityRelation;
@@ -43,9 +41,11 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 public class SettingWorkflowServiceImpl implements SettingWorkflowService {
@@ -65,6 +65,7 @@ public class SettingWorkflowServiceImpl implements SettingWorkflowService {
     private final GenerationJobService generationJobService;
     private final AiOrchestratorService aiOrchestratorService;
     private final SettingWorkflowConverter settingWorkflowConverter;
+    private final TransactionTemplate transactionTemplate;
 
     public SettingWorkflowServiceImpl(
             SettingWorkflowRunMapper settingWorkflowRunMapper,
@@ -81,7 +82,8 @@ public class SettingWorkflowServiceImpl implements SettingWorkflowService {
             SettingLibraryService settingLibraryService,
             GenerationJobService generationJobService,
             AiOrchestratorService aiOrchestratorService,
-            SettingWorkflowConverter settingWorkflowConverter) {
+            SettingWorkflowConverter settingWorkflowConverter,
+            TransactionTemplate transactionTemplate) {
         this.settingWorkflowRunMapper = settingWorkflowRunMapper;
         this.projectMapper = projectMapper;
         this.ideaMapper = ideaMapper;
@@ -97,10 +99,10 @@ public class SettingWorkflowServiceImpl implements SettingWorkflowService {
         this.generationJobService = generationJobService;
         this.aiOrchestratorService = aiOrchestratorService;
         this.settingWorkflowConverter = settingWorkflowConverter;
+        this.transactionTemplate = transactionTemplate;
     }
 
     @Override
-    @Transactional
     public SettingWorkflowResponse startWorkflow(SettingWorkflowCreateRequest request) {
         Project project = requireProject(request.getProjectId());
         Idea idea = requireSelectedIdea(project, request.getIdeaId());
@@ -111,17 +113,20 @@ public class SettingWorkflowServiceImpl implements SettingWorkflowService {
         if (!issues.isEmpty()) {
             throw new BusinessException(ErrorCode.AI_TASK_UNAVAILABLE, "设定蓝图校验失败：" + String.join("；", issues));
         }
-
-        SettingWorkflowRun run = new SettingWorkflowRun()
-                .setProjectId(project.getId())
-                .setSourceIdeaId(idea.getId())
-                .setModelConfigId(request.getModelConfigId())
-                .setStatus("blueprint_ready")
-                .setBlueprintJson(JsonUtils.toJson(blueprint));
-        settingWorkflowRunMapper.insert(run);
-        generationJobService.recordFinishedJob(project.getId(), "setting_workflow_blueprint", "setting_workflow", run.getId(),
-                request.getModelConfigId(), context, blueprint);
-        return toResponse(run);
+        return transactionTemplate.execute(status -> {
+            Project currentProject = requireProject(project.getId());
+            Idea currentIdea = requireSelectedIdea(currentProject, idea.getId());
+            SettingWorkflowRun run = new SettingWorkflowRun()
+                    .setProjectId(currentProject.getId())
+                    .setSourceIdeaId(currentIdea.getId())
+                    .setModelConfigId(request.getModelConfigId())
+                    .setStatus("blueprint_ready")
+                    .setBlueprintJson(JsonUtils.toJson(blueprint));
+            settingWorkflowRunMapper.insert(run);
+            generationJobService.recordFinishedJob(currentProject.getId(), "setting_workflow_blueprint",
+                    "setting_workflow", run.getId(), request.getModelConfigId(), context, blueprint);
+            return toResponse(run);
+        });
     }
 
     @Override
@@ -143,7 +148,6 @@ public class SettingWorkflowServiceImpl implements SettingWorkflowService {
     }
 
     @Override
-    @Transactional
     public SettingWorkflowResponse approveBlueprint(Long workflowId) {
         SettingWorkflowRun run = requireRun(workflowId);
         if (!"blueprint_ready".equals(run.getStatus())) {
@@ -156,18 +160,22 @@ public class SettingWorkflowServiceImpl implements SettingWorkflowService {
         Map<String, Object> draft = requireJsonObject(result.getContent(), "设定草案不是合法 JSON");
         Map<String, Object> checks = checkDraft(draft);
         boolean passed = Boolean.TRUE.equals(checks.get("passed"));
-        run.setDraftJson(JsonUtils.toJson(draft))
-                .setCheckJson(JsonUtils.toJson(checks))
-                .setBlueprintConfirmedAt(LocalDateTime.now())
-                .setStatus(passed ? "draft_ready" : "check_failed");
-        settingWorkflowRunMapper.updateById(run);
-        generationJobService.recordFinishedJob(project.getId(), "setting_workflow_draft", "setting_workflow", run.getId(),
-                run.getModelConfigId(), Map.of("blueprint", blueprint), Map.of("draft", draft, "checks", checks));
-        return toResponse(run);
+        return transactionTemplate.execute(status -> {
+            SettingWorkflowRun currentRun = requireRunForUpdate(workflowId);
+            requireUnchangedWorkflow(currentRun, "blueprint_ready", run.getBlueprintJson());
+            currentRun.setDraftJson(JsonUtils.toJson(draft))
+                    .setCheckJson(JsonUtils.toJson(checks))
+                    .setBlueprintConfirmedAt(LocalDateTime.now())
+                    .setStatus(passed ? "draft_ready" : "check_failed");
+            settingWorkflowRunMapper.updateById(currentRun);
+            generationJobService.recordFinishedJob(project.getId(), "setting_workflow_draft", "setting_workflow",
+                    currentRun.getId(), currentRun.getModelConfigId(), Map.of("blueprint", blueprint),
+                    Map.of("draft", draft, "checks", checks));
+            return toResponse(currentRun);
+        });
     }
 
     @Override
-    @Transactional
     public SettingWorkflowResponse regenerateModule(Long workflowId, String moduleKey) {
         SettingWorkflowRun run = requireRun(workflowId);
         if (!List.of("draft_ready", "check_failed").contains(run.getStatus())) {
@@ -190,15 +198,22 @@ public class SettingWorkflowServiceImpl implements SettingWorkflowService {
         }
         Map<String, Object> checks = checkDraft(currentDraft);
         boolean passed = Boolean.TRUE.equals(checks.get("passed"));
-        run.setDraftJson(JsonUtils.toJson(currentDraft))
-                .setCheckJson(JsonUtils.toJson(checks))
-                .setStatus(passed ? "draft_ready" : "check_failed");
-        settingWorkflowRunMapper.updateById(run);
-        generationJobService.recordFinishedJob(project.getId(), "setting_workflow_regenerate_" + normalizedModuleKey,
-                "setting_workflow", run.getId(), run.getModelConfigId(),
-                Map.of("moduleKey", normalizedModuleKey, "blueprint", blueprint),
-                Map.of("module", regeneratedModule, "checks", checks));
-        return toResponse(run);
+        return transactionTemplate.execute(status -> {
+            SettingWorkflowRun currentRun = requireRunForUpdate(workflowId);
+            if (!List.of("draft_ready", "check_failed").contains(currentRun.getStatus())
+                    || !Objects.equals(run.getDraftJson(), currentRun.getDraftJson())) {
+                throw new BusinessException(ErrorCode.BUSINESS_ERROR, "设定工作流已变化，请基于最新草案重试");
+            }
+            currentRun.setDraftJson(JsonUtils.toJson(currentDraft))
+                    .setCheckJson(JsonUtils.toJson(checks))
+                    .setStatus(passed ? "draft_ready" : "check_failed");
+            settingWorkflowRunMapper.updateById(currentRun);
+            generationJobService.recordFinishedJob(project.getId(),
+                    "setting_workflow_regenerate_" + normalizedModuleKey, "setting_workflow", currentRun.getId(),
+                    currentRun.getModelConfigId(), Map.of("moduleKey", normalizedModuleKey, "blueprint", blueprint),
+                    Map.of("module", regeneratedModule, "checks", checks));
+            return toResponse(currentRun);
+        });
     }
 
     @Override
@@ -214,18 +229,6 @@ public class SettingWorkflowServiceImpl implements SettingWorkflowService {
         Map<String, Object> draft = JsonUtils.toMap(run.getDraftJson());
         Map<String, Long> entityIds = new HashMap<>();
         Long projectId = run.getProjectId();
-
-        SettingLibraryGenerateRequest generateRequest = new SettingLibraryGenerateRequest();
-        generateRequest.setProjectId(projectId);
-        generateRequest.setIdeaId(run.getSourceIdeaId());
-        generateRequest.setModelConfigId(run.getModelConfigId());
-        generateRequest.setSourceIdeaSummary(text(draft.get("overview")));
-        settingLibraryService.generateSettingLibrary(generateRequest);
-        SettingLibraryUpdateRequest updateRequest = new SettingLibraryUpdateRequest();
-        updateRequest.setSummary(text(draft.get("overview")));
-        updateRequest.setOverview(text(draft.get("overview")));
-        updateRequest.setChangeNote("提交设定生成工作流草案");
-        settingLibraryService.updateSettingLibrary(projectId, updateRequest);
 
         for (Map<String, Object> item : listOfMaps(draft.get("rules"))) {
             WorldRule rule = new WorldRule().setProjectId(projectId)
@@ -343,9 +346,15 @@ public class SettingWorkflowServiceImpl implements SettingWorkflowService {
                     .setEventId(eventIds.get(text(item.get("eventKey")))));
         }
 
+        SettingLibraryResponse setting = settingLibraryService.commitWorkflowDraft(
+                projectId,
+                run.getSourceIdeaId(),
+                text(draft.get("overview")),
+                run.getModelConfigId(),
+                run.getId());
         run.setStatus("committed").setCommittedAt(LocalDateTime.now());
         settingWorkflowRunMapper.updateById(run);
-        return settingLibraryService.getSettingLibrary(projectId);
+        return setting;
     }
 
     private Map<String, Object> settingContext(Project project, Idea idea) {
@@ -513,6 +522,13 @@ public class SettingWorkflowServiceImpl implements SettingWorkflowService {
             throw new BusinessException(ErrorCode.NOT_FOUND, "璁惧畾鐢熸垚宸ヤ綔娴佷笉瀛樺湪");
         }
         return run;
+    }
+
+    private void requireUnchangedWorkflow(SettingWorkflowRun currentRun, String expectedStatus, String expectedBlueprint) {
+        if (!expectedStatus.equals(currentRun.getStatus())
+                || !Objects.equals(expectedBlueprint, currentRun.getBlueprintJson())) {
+            throw new BusinessException(ErrorCode.BUSINESS_ERROR, "设定工作流已变化，请重试");
+        }
     }
 
     private SettingWorkflowResponse toResponse(SettingWorkflowRun run) {

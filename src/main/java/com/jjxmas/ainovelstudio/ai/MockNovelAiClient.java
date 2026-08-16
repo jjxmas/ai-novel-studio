@@ -112,6 +112,12 @@ public class MockNovelAiClient implements NovelAiClient {
         if (command.getTaskType() == AiTaskType.GLOBAL_MEMORY_UPDATE) {
             return "全局总摘要：作品主线继续推进，已完成内容围绕核心冲突逐步扩展，重要设定与人物变化保持记录。";
         }
+        if (command.getTaskType() == AiTaskType.CONTINUITY_CHECK
+                || command.getTaskType() == AiTaskType.STYLE_CHECK) {
+            return """
+                    {"summary":"mock 模式检查完成。","issues":[]}
+                    """;
+        }
         if (command.getTaskType() == AiTaskType.IDEA_GENERATION) {
             return """
                     标题：低门槛长篇成长方案

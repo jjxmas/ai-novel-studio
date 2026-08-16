@@ -13,6 +13,7 @@ import type {
   EntityStateRecord,
   EntityStateRecordRequest,
   ExportRecord,
+  ExportResult,
   GlobalOutline,
   Idea,
   IdeaGenerateRequest,
@@ -38,7 +39,7 @@ import type {
   StoryLocation,
   StoryLocationRequest,
   StoryMemory,
-  StoryRebuildResult,
+  StoryRebuildRun,
   WorkflowStage,
   WorldRule,
   WorldRuleRequest,
@@ -73,7 +74,7 @@ function mapProject(data: any): Project {
     targetChapterWordCount: data.targetChapterWordCount ?? 3000,
     platformTarget: data.platformTarget ?? 'general',
     stylePreference: data.stylePreference ?? '',
-    stage: data.stage ?? mapStage(data.status),
+    stage: data.workflowStage ?? data.stage ?? mapStage(data.status),
     updatedAt: data.updatedAt ?? data.createdAt ?? nowText(),
   };
 }
@@ -319,10 +320,11 @@ function mapStateRecord(data: any, projectId?: number): EntityStateRecord {
   };
 }
 
-function mapChapter(data: any, projectId?: number): Chapter {
-  const status = data.status === 'edited'
+function mapChapter(data: ChapterWire, projectId?: number): Chapter {
+  const contentStatus = data.contentStatus ?? (data.content ? 'generated' : 'not_generated');
+  const status = contentStatus === 'edited'
     ? 'edited'
-    : data.status === 'drafted' || data.status === 'content_ready'
+    : ['generated', 'checked'].includes(contentStatus) || data.status === 'drafted' || data.status === 'content_ready'
       ? 'content_ready'
       : 'outline_ready';
   return {
@@ -333,6 +335,13 @@ function mapChapter(data: any, projectId?: number): Chapter {
     outline: data.outline ?? '',
     scenePlan: Array.isArray(data.scenePlan) ? data.scenePlan : [],
     content: data.content ?? '',
+    wordCount: data.wordCount ?? 0,
+    hasContent: Boolean(data.hasContent ?? data.content),
+    contentStatus,
+    contentGeneratedAt: data.contentGeneratedAt ?? null,
+    contentUpdatedAt: data.contentUpdatedAt ?? null,
+    lastGenerationJobId: data.lastGenerationJobId ?? null,
+    lastContentVersionNo: data.lastContentVersionNo ?? 0,
     status,
   };
 }
@@ -344,35 +353,149 @@ interface ChapterStreamEvent {
   message?: string;
 }
 
-function mapChapterGenerationBatch(data: any): ChapterGenerationBatch {
+interface ChapterWire {
+  id: number;
+  projectId?: number;
+  chapterNo?: number;
+  title: string;
+  outline?: string | null;
+  scenePlan?: string[] | null;
+  content?: string | null;
+  wordCount?: number | null;
+  hasContent?: boolean | null;
+  status?: string | null;
+  contentStatus?: string | null;
+  contentGeneratedAt?: string | null;
+  contentUpdatedAt?: string | null;
+  lastGenerationJobId?: number | null;
+  lastContentVersionNo?: number | null;
+}
+
+interface ChapterPageWire {
+  items: ChapterWire[];
+  total: number;
+  page: number;
+  size: number;
+}
+
+interface ChapterStreamEventWire {
+  type: ChapterStreamEvent['type'];
+  content?: string | null;
+  chapter?: ChapterWire | null;
+  message?: string | null;
+}
+
+interface VersionWire {
+  id: number;
+  projectId: number;
+  entityType: string;
+  entityId: number;
+  versionNo: number;
+  changeSource: string;
+  operationType: string;
+  changeNote: string;
+  revisionInstruction?: string | null;
+  createdAt: string;
+}
+
+interface CheckIssueWire {
+  type: string;
+  severity: string;
+  description: string;
+  suggestion: string;
+  reference?: string | null;
+}
+
+interface CheckWire {
+  issueCount: number;
+  issues: CheckIssueWire[];
+  summary: string;
+}
+
+interface ChapterGenerationBatchSummaryWire {
+  batchId: number;
+  projectId: number;
+  batchType: string;
+  modelConfigId?: number | null;
+  status: string;
+  totalCount: number;
+  pendingCount: number;
+  runningCount: number;
+  succeededCount: number;
+  failedCount: number;
+  skippedCount: number;
+  qualityCheckedCount: number;
+  qualityFailedCount: number;
+  qualityIssueCount: number;
+  errorMessage?: string | null;
+  createdAt?: string | null;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+}
+
+interface ChapterGenerationBatchItemWire {
+  id: number;
+  chapterId: number;
+  chapterNo: number;
+  status: string;
+  attemptCount: number;
+  generationJobId?: number | null;
+  qualityStatus: string;
+  qualityIssueCount: number;
+  qualityReport?: CheckWire | null;
+  qualityErrorMessage?: string | null;
+  errorMessage?: string | null;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+}
+
+interface ChapterGenerationBatchWire extends ChapterGenerationBatchSummaryWire {
+  items: ChapterGenerationBatchItemWire[];
+}
+
+interface ExportWire {
+  fileName: string;
+  filePath: string;
+  format: 'md' | 'txt';
+  scope: string;
+  content: string;
+}
+
+function mapChapterGenerationBatchSummary(data: ChapterGenerationBatchSummaryWire): ChapterGenerationBatchSummary {
   return {
     batchId: data.batchId,
     projectId: data.projectId,
-    batchType: data.batchType ?? 'chapter_content',
+    batchType: data.batchType,
     modelConfigId: data.modelConfigId ?? null,
-    status: data.status ?? 'queued',
-    totalCount: data.totalCount ?? 0,
-    pendingCount: data.pendingCount ?? 0,
-    runningCount: data.runningCount ?? 0,
-    succeededCount: data.succeededCount ?? 0,
-    failedCount: data.failedCount ?? 0,
-    skippedCount: data.skippedCount ?? 0,
-    qualityCheckedCount: data.qualityCheckedCount ?? 0,
-    qualityFailedCount: data.qualityFailedCount ?? 0,
-    qualityIssueCount: data.qualityIssueCount ?? 0,
+    status: data.status,
+    totalCount: data.totalCount,
+    pendingCount: data.pendingCount,
+    runningCount: data.runningCount,
+    succeededCount: data.succeededCount,
+    failedCount: data.failedCount,
+    skippedCount: data.skippedCount,
+    qualityCheckedCount: data.qualityCheckedCount,
+    qualityFailedCount: data.qualityFailedCount,
+    qualityIssueCount: data.qualityIssueCount,
     errorMessage: data.errorMessage ?? null,
     createdAt: data.createdAt ?? null,
     startedAt: data.startedAt ?? null,
     finishedAt: data.finishedAt ?? null,
-    items: (data.items ?? []).map((item: any) => ({
+  };
+}
+
+function mapChapterGenerationBatch(data: ChapterGenerationBatchWire): ChapterGenerationBatch {
+  return {
+    ...mapChapterGenerationBatchSummary(data),
+    items: data.items.map((item) => ({
       id: item.id,
       chapterId: item.chapterId,
       chapterNo: item.chapterNo,
-      status: item.status ?? 'pending',
-      attemptCount: item.attemptCount ?? 0,
+      status: item.status,
+      attemptCount: item.attemptCount,
       generationJobId: item.generationJobId ?? null,
-      qualityStatus: item.qualityStatus ?? 'not_run',
-      qualityIssueCount: item.qualityIssueCount ?? 0,
+      qualityStatus: item.qualityStatus,
+      qualityIssueCount: item.qualityIssueCount,
       qualityReport: item.qualityReport ?? null,
       qualityErrorMessage: item.qualityErrorMessage ?? null,
       errorMessage: item.errorMessage ?? null,
@@ -382,12 +505,7 @@ function mapChapterGenerationBatch(data: any): ChapterGenerationBatch {
   };
 }
 
-function mapChapterGenerationBatchSummary(data: any): ChapterGenerationBatchSummary {
-  const { items: _items, ...summary } = mapChapterGenerationBatch(data);
-  return summary;
-}
-
-function mapChapterStreamEvent(event: any, projectId?: number): ChapterStreamEvent {
+function mapChapterStreamEvent(event: ChapterStreamEventWire, projectId?: number): ChapterStreamEvent {
   return {
     type: event.type,
     content: event.content ?? '',
@@ -430,14 +548,13 @@ function mapProjectMemory(data: any): ProjectMemory {
   };
 }
 
-function mapExport(data: any, projectId: number, format: ExportRecord['format'], scope: string): ExportRecord {
+function mapExport(data: ExportWire): ExportResult {
   return {
-    id: data.id ?? Date.now(),
-    projectId: data.projectId ?? projectId,
-    format: data.format ?? format,
-    scope: data.scope ?? scope,
     fileName: data.fileName,
-    status: data.status ?? 'created',
+    filePath: data.filePath,
+    format: data.format === 'md' ? 'markdown' : 'txt',
+    scope: data.scope,
+    content: data.content,
   };
 }
 
@@ -497,8 +614,6 @@ export const novelApi = {
   selectIdea: (ideaId: number) => post<void>(`/ideas/${ideaId}/select`),
   deleteIdea: (ideaId: number) => del<void>(`/ideas/${ideaId}`),
 
-  generateSettingLibrary: (projectId: number) =>
-    post<any>(`/projects/${projectId}/setting-library/generate`, { projectId }).then(mapSettingLibrary),
   getSettingLibrary: (projectId: number) =>
     request<any>(`/projects/${projectId}/setting-library`).then(mapSettingLibrary),
   getSettingLibrarySnapshot: (projectId: number) =>
@@ -592,11 +707,6 @@ export const novelApi = {
   deleteStateRecord: (projectId: number, recordId: number) =>
     del<void>(`/projects/${projectId}/state-records/${recordId}`),
 
-  generateGlobalOutline: (projectId: number) =>
-    post<any>(`/projects/${projectId}/global-outline/generate`, {
-      projectId,
-      outlineLevel: 'global',
-    }).then(mapGlobalOutline),
   getGlobalOutline: (projectId: number) =>
     request<any>(`/projects/${projectId}/global-outline`).then(mapGlobalOutline),
   updateGlobalOutline: (id: number, content: string) =>
@@ -613,31 +723,49 @@ export const novelApi = {
     post<any>(`/outline-workflows/${workflowId}/commit`).then(mapGlobalOutline),
 
   listChapters: (projectId: number) =>
-    request<any[]>(`/projects/${projectId}/chapters`).then((items) => items.map((item) => mapChapter(item, projectId))),
-  generateChapterOutlines: (projectId: number) =>
-    post<any[]>(`/projects/${projectId}/chapters/generate-outline`).then((items) => items.map((item) => mapChapter(item, projectId))),
+    request<ChapterWire[]>(`/projects/${projectId}/chapters/catalog`)
+      .then((items) => items.map((item) => mapChapter(item, projectId))),
+  listChapterPage: (projectId: number, page: number, size: number, keyword = '') => {
+    const params = new URLSearchParams({ page: String(page), size: String(size) });
+    if (keyword.trim()) params.set('keyword', keyword.trim());
+    return request<ChapterPageWire>(`/projects/${projectId}/chapters?${params}`).then((result) => ({
+      items: result.items.map((item) => mapChapter(item, projectId)),
+      total: result.total,
+      page: result.page,
+      size: result.size,
+    }));
+  },
+  getChapter: (chapterId: number) =>
+    request<ChapterWire>(`/chapters/${chapterId}`).then((item) => mapChapter(item)),
   continueChapterOutlines: (projectId: number, payload: ChapterOutlineContinueRequest) =>
-    post<any[]>(`/projects/${projectId}/chapters/continue-outline`, payload)
+    post<ChapterWire[]>(`/projects/${projectId}/chapters/continue-outline`, payload)
       .then((items) => items.map((item) => mapChapter(item, projectId))),
   createChapterGenerationBatch: (projectId: number, payload: ChapterGenerationBatchCreateRequest) =>
-    post<any>(`/projects/${projectId}/chapter-generation-batches`, payload).then(mapChapterGenerationBatch),
+    post<ChapterGenerationBatchWire>(`/projects/${projectId}/chapter-generation-batches`, payload)
+      .then(mapChapterGenerationBatch),
   getChapterGenerationBatch: (batchId: number) =>
-    request<any>(`/chapter-generation-batches/${batchId}`).then(mapChapterGenerationBatch),
+    request<ChapterGenerationBatchWire>(`/chapter-generation-batches/${batchId}`)
+      .then(mapChapterGenerationBatch),
   listChapterGenerationBatches: (projectId: number) =>
-    request<any[]>(`/projects/${projectId}/chapter-generation-batches`)
+    request<ChapterGenerationBatchSummaryWire[]>(`/projects/${projectId}/chapter-generation-batches`)
       .then((items) => items.map(mapChapterGenerationBatchSummary)),
   getLatestChapterGenerationBatch: (projectId: number) =>
-    request<any>(`/projects/${projectId}/chapter-generation-batches/latest`).then(mapChapterGenerationBatch),
+    request<ChapterGenerationBatchWire>(`/projects/${projectId}/chapter-generation-batches/latest`)
+      .then(mapChapterGenerationBatch),
   cancelChapterGenerationBatch: (batchId: number) =>
-    post<any>(`/chapter-generation-batches/${batchId}/cancel`).then(mapChapterGenerationBatch),
+    post<ChapterGenerationBatchWire>(`/chapter-generation-batches/${batchId}/cancel`)
+      .then(mapChapterGenerationBatch),
   pauseChapterGenerationBatch: (batchId: number) =>
-    post<any>(`/chapter-generation-batches/${batchId}/pause`).then(mapChapterGenerationBatch),
+    post<ChapterGenerationBatchWire>(`/chapter-generation-batches/${batchId}/pause`)
+      .then(mapChapterGenerationBatch),
   resumeChapterGenerationBatch: (batchId: number) =>
-    post<any>(`/chapter-generation-batches/${batchId}/resume`).then(mapChapterGenerationBatch),
+    post<ChapterGenerationBatchWire>(`/chapter-generation-batches/${batchId}/resume`)
+      .then(mapChapterGenerationBatch),
   retryFailedChapterGenerationBatch: (batchId: number) =>
-    post<any>(`/chapter-generation-batches/${batchId}/retry-failed`).then(mapChapterGenerationBatch),
+    post<ChapterGenerationBatchWire>(`/chapter-generation-batches/${batchId}/retry-failed`)
+      .then(mapChapterGenerationBatch),
   generateChapterContent: (chapter: Chapter, suggestion?: string) =>
-    post<any>(`/chapters/${chapter.id}/generate-content`, {
+    post<ChapterWire>(`/chapters/${chapter.id}/generate-content`, {
       projectId: chapter.projectId,
       revisionAdvice: suggestion,
     }).then((item) => mapChapter(item, chapter.projectId)),
@@ -646,7 +774,7 @@ export const novelApi = {
     suggestion: string | undefined,
     onEvent: (event: ChapterStreamEvent) => void,
   ) =>
-    streamRequest<any>(
+    streamRequest<ChapterStreamEventWire>(
       `/chapters/${chapter.id}/generate-content/stream`,
       {
         projectId: chapter.projectId,
@@ -654,10 +782,10 @@ export const novelApi = {
       },
       (event) => onEvent(mapChapterStreamEvent(event, chapter.projectId)),
     ),
-  updateChapter: (chapterId: number, content: string) =>
-    patch<any>(`/chapters/${chapterId}`, { content }).then((item) => mapChapter(item)),
+  updateChapter: (chapterId: number, content: string, expectedVersion: number) =>
+    patch<ChapterWire>(`/chapters/${chapterId}`, { content, expectedVersion }).then((item) => mapChapter(item)),
   rewriteChapterContent: (chapterId: number, suggestion: string) =>
-    post<any>(`/chapters/${chapterId}/rewrite-content`, {
+    post<ChapterWire>(`/chapters/${chapterId}/rewrite-content`, {
       instruction: suggestion || 'Rewrite the chapter with clearer action, conflict, and dialogue.',
     }).then((item) => mapChapter(item)),
   streamRewriteChapterContent: (
@@ -665,7 +793,7 @@ export const novelApi = {
     suggestion: string,
     onEvent: (event: ChapterStreamEvent) => void,
   ) =>
-    streamRequest<any>(
+    streamRequest<ChapterStreamEventWire>(
       `/chapters/${chapterId}/rewrite-content/stream`,
       {
         instruction: suggestion || 'Rewrite the chapter with clearer action, conflict, and dialogue.',
@@ -678,41 +806,51 @@ export const novelApi = {
     request<StoryDirtyMarkSnapshot>(
       `/projects/${projectId}/story-dirty-marks${chapterNo == null ? '' : `?chapterNo=${chapterNo}`}`,
     ),
-  rebuildStoryState: (projectId: number, startChapterNo?: number, modelConfigId?: number) =>
-    post<StoryRebuildResult>(`/projects/${projectId}/story-rebuild`, {
+  enqueueStoryRebuild: (projectId: number, startChapterNo?: number, modelConfigId?: number) =>
+    post<StoryRebuildRun>(`/projects/${projectId}/story-rebuild-jobs`, {
       startChapterNo,
       modelConfigId,
     }),
+  getStoryRebuildRun: (projectId: number, runId: number) =>
+    request<StoryRebuildRun>(`/projects/${projectId}/story-rebuild-jobs/${runId}`),
+  getLatestStoryRebuildRun: (projectId: number) =>
+    request<StoryRebuildRun | null>(`/projects/${projectId}/story-rebuild-jobs/latest`),
 
-  createCheck: (projectId: number) =>
-    post<any>('/checks', { projectId, checkType: 'all' }).then((result) =>
-      (result.issues ?? []).map((issue: any, index: number): CheckResult => ({
+  createCheck: (projectId: number, chapterId: number) =>
+    post<CheckWire>('/checks', { projectId, chapterId, checkType: 'continuity' }).then((result) =>
+      result.issues.map((issue, index): CheckResult => ({
         id: index + 1,
         projectId,
         type: issue.type,
-        severity: issue.severity === 'critical' ? '\u9ad8' : issue.severity === 'info' ? '\u4f4e' : '\u4e2d',
-        summary: issue.description,
+        severity: ['critical', 'high'].includes(issue.severity)
+          ? '\u9ad8'
+          : ['info', 'low'].includes(issue.severity) ? '\u4f4e' : '\u4e2d',
+        summary: issue.reference ? `${issue.reference}：${issue.description}` : issue.description,
         suggestion: issue.suggestion,
       })),
     ),
-  createExport: (projectId: number, format: ExportRecord['format'], scope: string) =>
-    post<any>('/exports', { projectId, format, scope }).then((item) => ({
-      projectId: item.projectId ?? projectId,
-      format: item.format ?? format,
-      scope: item.scope ?? scope,
-      fileName: item.fileName,
-      content: item.content ?? '',
-    })),
+  createQualityCheckBatch: (projectId: number, modelConfigId?: number) =>
+    post<ChapterGenerationBatchWire>('/checks/batches', { projectId, modelConfigId, checkType: 'all' })
+      .then(mapChapterGenerationBatch),
+  getQualityCheckBatch: (batchId: number) =>
+    request<ChapterGenerationBatchWire>(`/checks/batches/${batchId}`).then(mapChapterGenerationBatch),
+  getLatestQualityCheckBatch: (projectId: number) =>
+    request<ChapterGenerationBatchWire>(`/checks/projects/${projectId}/batches/latest`)
+      .then(mapChapterGenerationBatch),
+  createExport: (projectId: number, format: ExportRecord['format'], scope: string, scopeEntityId?: number) =>
+    post<ExportWire>('/exports', { projectId, format, scope, scopeEntityId }).then(mapExport),
   listVersions: (projectId: number) =>
-    request<any[]>(`/versions?projectId=${projectId}`).then((items) =>
+    request<VersionWire[]>(`/versions?projectId=${projectId}`).then((items) =>
       items.map((item): ContentVersion => ({
         id: item.id,
-        projectId,
+        projectId: item.projectId,
         targetType: item.entityType,
         targetId: item.entityId,
-        actionType: item.changeSource,
+        versionNo: item.versionNo,
+        actionType: item.operationType,
         summary: item.changeNote,
-        createdAt: item.createdAt ?? nowText(),
+        revisionInstruction: item.revisionInstruction ?? null,
+        createdAt: item.createdAt,
       })),
     ),
 };

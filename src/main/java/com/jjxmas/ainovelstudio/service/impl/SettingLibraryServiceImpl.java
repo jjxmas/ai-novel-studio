@@ -24,7 +24,6 @@ import com.jjxmas.ainovelstudio.pojo.dto.EntityStateRecordResponse;
 import com.jjxmas.ainovelstudio.pojo.dto.EntityStateRecordUpsertRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.OrganizationResponse;
 import com.jjxmas.ainovelstudio.pojo.dto.OrganizationUpsertRequest;
-import com.jjxmas.ainovelstudio.pojo.dto.SettingLibraryGenerateRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.SettingLibraryResponse;
 import com.jjxmas.ainovelstudio.pojo.dto.SettingLibraryRewriteRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.SettingLibrarySnapshotResponse;
@@ -116,50 +115,39 @@ public class SettingLibraryServiceImpl extends ServiceImpl<SettingLibraryMapper,
 
     @Override
     @Transactional
-    @CacheEvict(value = {"settingLibraries", "chapterContextSettings"}, key = "#request.projectId")
-    public SettingLibraryResponse generateSettingLibrary(SettingLibraryGenerateRequest request) {
-        Project project = requireProject(request.getProjectId());
-        Idea selectedIdea = requireSelectedIdea(project, request.getIdeaId());
-        String sourceIdeaSummary = defaultText(request.getSourceIdeaSummary(), selectedIdea.getSummary());
-        String overview = """
-                基于已选创意生成的结构化设定总览。
-
-                创意摘要：
-                %s
-
-                建议下一步补全角色、组织、地点、物品、规则、关系、事件和状态记录，再进入大纲阶段。
-                """.formatted(sourceIdeaSummary);
-
+    @CacheEvict(value = {"settingLibraries", "chapterContextSettings"}, key = "#projectId")
+    public SettingLibraryResponse commitWorkflowDraft(
+            Long projectId,
+            Long sourceIdeaId,
+            String overview,
+            Long modelConfigId,
+            Long workflowId) {
+        Project project = requireProject(projectId);
+        Idea selectedIdea = requireSelectedIdea(project, sourceIdeaId);
+        String normalizedOverview = defaultText(overview, selectedIdea.getSummary());
         SettingLibrary setting = findByProjectId(project.getId());
         if (setting == null) {
             setting = new SettingLibrary().setProjectId(project.getId());
         }
         setting.setSourceIdeaId(selectedIdea.getId())
-                .setSummary(overview)
-                .setOverview(overview)
+                .setSummary(normalizedOverview)
+                .setOverview(normalizedOverview)
                 .setGenreTemplate(project.getPlatformTarget())
                 .setStatus("generated")
                 .setConfirmedAt(null);
         saveOrUpdate(setting);
 
         Map<String, Object> snapshot = settingSnapshot(setting, false);
-        Long jobId = generationJobService.recordFinishedJob(
-                project.getId(),
-                "setting_generation",
-                "setting_library",
-                setting.getId(),
-                request.getModelConfigId(),
-                Map.of("ideaId", selectedIdea.getId(), "sourceIdeaSummary", sourceIdeaSummary),
-                snapshot);
         versionService.recordVersion(
                 project.getId(),
                 "setting_library",
                 setting.getId(),
                 snapshot,
                 "ai_generate",
-                "生成结构化设定库总览",
-                request.getModelConfigId(),
-                jobId);
+                "提交设定工作流 #" + workflowId,
+                modelConfigId,
+                null);
+        evictSettingLibrary(projectId);
         return toResponse(setting);
     }
 
@@ -280,7 +268,7 @@ public class SettingLibraryServiceImpl extends ServiceImpl<SettingLibraryMapper,
         updateById(setting);
 
         Project project = requireProject(projectId);
-        project.setStatus("setting_confirmed");
+        project.setWorkflowStage("outline");
         projectMapper.updateById(project);
 
         versionService.recordVersion(

@@ -6,6 +6,7 @@ import com.jjxmas.ainovelstudio.pojo.dto.ProjectResponse;
 import com.jjxmas.ainovelstudio.pojo.dto.StoryDirtyMarkSnapshotResponse;
 import com.jjxmas.ainovelstudio.pojo.dto.StoryRebuildRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.StoryRebuildResult;
+import com.jjxmas.ainovelstudio.pojo.dto.StoryRebuildRunResponse;
 import com.jjxmas.ainovelstudio.service.ProjectService;
 import com.jjxmas.ainovelstudio.service.StoryDirtyMarkService;
 import com.jjxmas.ainovelstudio.service.StoryRebuildService;
@@ -80,5 +81,27 @@ public class ProjectController {
                 projectId,
                 request == null ? null : request.getStartChapterNo(),
                 request == null ? null : request.getModelConfigId()));
+    }
+
+    @PostMapping("/{projectId}/story-rebuild-jobs")
+    public ApiResponse<StoryRebuildRunResponse> enqueueStoryRebuild(
+            @PathVariable Long projectId,
+            @Valid @RequestBody StoryRebuildRequest request) {
+        return ApiResponse.success(storyRebuildService.enqueueRebuild(
+                projectId,
+                request == null ? null : request.getStartChapterNo(),
+                request == null ? null : request.getModelConfigId()));
+    }
+
+    @GetMapping("/{projectId}/story-rebuild-jobs/latest")
+    public ApiResponse<StoryRebuildRunResponse> getLatestStoryRebuild(@PathVariable Long projectId) {
+        return ApiResponse.success(storyRebuildService.getLatestRebuildRun(projectId));
+    }
+
+    @GetMapping("/{projectId}/story-rebuild-jobs/{runId}")
+    public ApiResponse<StoryRebuildRunResponse> getStoryRebuild(
+            @PathVariable Long projectId,
+            @PathVariable Long runId) {
+        return ApiResponse.success(storyRebuildService.getRebuildRun(projectId, runId));
     }
 }

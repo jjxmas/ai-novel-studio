@@ -6,6 +6,7 @@ import com.jjxmas.ainovelstudio.common.exception.ErrorCode;
 import com.jjxmas.ainovelstudio.common.util.JsonUtils;
 import com.jjxmas.ainovelstudio.converter.VersionConverter;
 import com.jjxmas.ainovelstudio.mapper.ContentVersionMapper;
+import com.jjxmas.ainovelstudio.mapper.ProjectMapper;
 import com.jjxmas.ainovelstudio.pojo.dto.VersionResponse;
 import com.jjxmas.ainovelstudio.pojo.entity.ContentVersion;
 import com.jjxmas.ainovelstudio.service.VersionService;
@@ -18,12 +19,15 @@ import org.springframework.transaction.annotation.Transactional;
 public class VersionServiceImpl implements VersionService {
 
     private final ContentVersionMapper contentVersionMapper;
+    private final ProjectMapper projectMapper;
     private final VersionConverter versionConverter;
 
     public VersionServiceImpl(
             ContentVersionMapper contentVersionMapper,
+            ProjectMapper projectMapper,
             VersionConverter versionConverter) {
         this.contentVersionMapper = contentVersionMapper;
+        this.projectMapper = projectMapper;
         this.versionConverter = versionConverter;
     }
 
@@ -48,7 +52,7 @@ public class VersionServiceImpl implements VersionService {
 
     @Override
     @Transactional
-    public void recordVersion(
+    public int recordVersion(
             Long projectId,
             String entityType,
             Long entityId,
@@ -57,6 +61,9 @@ public class VersionServiceImpl implements VersionService {
             String changeNote,
             Long modelConfigId,
             Long jobId) {
+        if (projectMapper.lockById(projectId) == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "作品不存在");
+        }
         ContentVersion latestVersion = contentVersionMapper.selectOne(new LambdaQueryWrapper<ContentVersion>()
                 .eq(ContentVersion::getEntityType, entityType)
                 .eq(ContentVersion::getEntityId, entityId)
@@ -77,6 +84,7 @@ public class VersionServiceImpl implements VersionService {
                 .setModelConfigId(modelConfigId)
                 .setJobId(jobId);
         contentVersionMapper.insert(version);
+        return nextVersionNo;
     }
 
     private String toOperationType(String changeSource) {

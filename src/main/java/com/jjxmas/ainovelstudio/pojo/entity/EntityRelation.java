@@ -34,5 +34,17 @@ public class EntityRelation extends BaseEntity {
 
     private Long startEventId;
 
+    private Long startChapterId;
+
+    private Integer startChapterNo;
+
+    private Long startContentVersionId;
+
     private Long endEventId;
+
+    private Long endChapterId;
+
+    private Integer endChapterNo;
+
+    private Long endContentVersionId;
 }

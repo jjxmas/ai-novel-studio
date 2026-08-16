@@ -1,6 +1,7 @@
 package com.jjxmas.ainovelstudio.converter;
 
 import com.jjxmas.ainovelstudio.pojo.dto.ChapterResponse;
+import com.jjxmas.ainovelstudio.pojo.dto.ChapterCatalogResponse;
 import com.jjxmas.ainovelstudio.pojo.entity.Chapter;
 import java.util.List;
 import org.mapstruct.Mapper;
@@ -17,4 +18,13 @@ public interface ChapterConverter {
     ChapterResponse toResponse(Chapter chapter);
 
     List<ChapterResponse> toResponseList(List<Chapter> chapters);
+
+    @Mapping(target = "outlineConfirmed", expression = "java(chapter.getConfirmedOutlineAt() != null)")
+    @Mapping(target = "hasContent", expression = "java(chapter.getContentStatus() != null && !\"not_generated\".equals(chapter.getContentStatus()))")
+    @Mapping(
+            target = "scenePlan",
+            expression = "java(com.jjxmas.ainovelstudio.common.util.JsonUtils.toStringList(chapter.getScenePlan()))")
+    ChapterCatalogResponse toCatalogResponse(Chapter chapter);
+
+    List<ChapterCatalogResponse> toCatalogResponseList(List<Chapter> chapters);
 }

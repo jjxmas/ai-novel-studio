@@ -44,6 +44,30 @@ public final class JsonUtils {
         }
     }
 
+    public static List<Integer> toIntegerList(String json) {
+        if (json == null || json.isBlank()) {
+            return List.of();
+        }
+        try {
+            return OBJECT_MAPPER.readValue(json, new TypeReference<>() {
+            });
+        } catch (Exception exception) {
+            return List.of();
+        }
+    }
+
+    public static List<Long> toLongList(String json) {
+        if (json == null || json.isBlank()) {
+            return List.of();
+        }
+        try {
+            return OBJECT_MAPPER.readValue(json, new TypeReference<>() {
+            });
+        } catch (Exception exception) {
+            return List.of();
+        }
+    }
+
     /**
      * 将 JSON 对象字符串解析为 Map。
      */

@@ -34,5 +34,7 @@ public class EntityStateRecord extends BaseEntity {
 
     private Long chapterId;
 
+    private Long sourceContentVersionId;
+
     private LocalDateTime effectiveAt;
 }

@@ -32,11 +32,12 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 @RequiredArgsConstructor
@@ -57,49 +58,61 @@ public class ChapterOutlineContinuationService {
     private final GenerationJobService generationJobService;
     private final VersionService versionService;
     private final ChapterConverter chapterConverter;
+    private final TransactionTemplate transactionTemplate;
 
-    @Transactional
     @CacheEvict(value = "chapterContextOutlines", key = "#projectId")
     public List<ChapterResponse> continueChapterOutlines(
             Long projectId,
             ChapterOutlineContinueRequest request) {
         validateCount(request.getCount());
-        Project project = requireProjectForUpdate(projectId);
+        Project project = requireProject(projectId);
         Outline outline = requireConfirmedOutline(projectId);
 
         Chapter lastChapter = chapterMapper.selectOne(new LambdaQueryWrapper<Chapter>()
                 .eq(Chapter::getProjectId, projectId)
                 .orderByDesc(Chapter::getChapterNo)
                 .last("LIMIT 1"));
+        int originalLastChapterNo = lastChapter == null ? 0 : lastChapter.getChapterNo();
         int nextChapterNo = lastChapter == null ? 1 : lastChapter.getChapterNo() + 1;
         int remaining = request.getCount();
-        List<ChapterResponse> created = new ArrayList<>(remaining);
+        Map<String, Object> baseContext = buildBaseContext(project, outline);
+        List<VolumePlan> pendingVolumes = new ArrayList<>();
+        List<ArcPlan> pendingArcs = new ArrayList<>();
+        List<ChapterPlan> pendingChapters = new ArrayList<>(remaining);
+        List<GeneratedBatch> generatedBatches = new ArrayList<>();
 
         while (remaining > 0) {
             int batchCount = Math.min(remaining, MODEL_BATCH_SIZE);
             Map<String, Object> context = buildContext(
-                    project,
-                    outline,
+                    baseContext,
                     nextChapterNo,
                     batchCount,
-                    request.getInstruction());
+                    request.getInstruction(),
+                    pendingVolumes,
+                    pendingArcs,
+                    pendingChapters);
             AiGenerateResult result = aiOrchestratorService.continueChapterOutline(
                     request.getModelConfigId(),
                     context);
-            ParsedBatch batch = parseAndValidateBatch(projectId, result, nextChapterNo, batchCount);
-            Long jobId = generationJobService.recordFinishedJob(
-                    projectId,
-                    "chapter_outline_continuation",
-                    "global_outline",
-                    outline.getId(),
-                    request.getModelConfigId(),
-                    context,
-                    batch.raw());
-            created.addAll(persistBatch(projectId, batch, request.getModelConfigId(), jobId));
+            ParsedBatch batch = parseAndValidateBatch(result, nextChapterNo, batchCount);
+            pendingVolumes.addAll(batch.newVolumes());
+            pendingArcs.addAll(batch.newArcs());
+            pendingChapters.addAll(batch.chapters());
+            validateReferences(projectId, pendingVolumes, pendingArcs, pendingChapters);
+            generatedBatches.add(new GeneratedBatch(context, batch));
             nextChapterNo += batchCount;
             remaining -= batchCount;
         }
-        return created;
+        return transactionTemplate.execute(status -> persistGeneratedBatches(
+                projectId,
+                outline,
+                baseContext,
+                originalLastChapterNo,
+                request.getModelConfigId(),
+                generatedBatches,
+                pendingVolumes,
+                pendingArcs,
+                pendingChapters));
     }
 
     private void validateCount(Integer count) {
@@ -118,6 +131,14 @@ public class ChapterOutlineContinuationService {
         return project;
     }
 
+    private Project requireProject(Long projectId) {
+        Project project = projectMapper.selectById(projectId);
+        if (project == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "作品不存在");
+        }
+        return project;
+    }
+
     private Outline requireConfirmedOutline(Long projectId) {
         Outline outline = outlineMapper.selectOne(new LambdaQueryWrapper<Outline>()
                 .eq(Outline::getProjectId, projectId)
@@ -128,12 +149,7 @@ public class ChapterOutlineContinuationService {
         return outline;
     }
 
-    private Map<String, Object> buildContext(
-            Project project,
-            Outline outline,
-            int startChapterNo,
-            int count,
-            String instruction) {
+    private Map<String, Object> buildBaseContext(Project project, Outline outline) {
         Long projectId = project.getId();
         SettingLibrary setting = settingLibraryMapper.selectOne(new LambdaQueryWrapper<SettingLibrary>()
                 .eq(SettingLibrary::getProjectId, projectId)
@@ -151,19 +167,76 @@ public class ChapterOutlineContinuationService {
             volumeNumbers.put(volume.getId(), volume.getVolumeNo());
         }
 
-        Map<String, Object> context = new LinkedHashMap<>();
-        context.put("project", projectContext(project));
-        context.put("confirmedSetting", settingContext(setting));
-        context.put("globalOutline", text(outline.getContent()));
-        context.put("existingVolumes", volumes.stream().map(this::volumeContext).toList());
-        context.put("existingArcs", arcs.stream().map(arc -> arcContext(arc, volumeNumbers)).toList());
-        context.put("recentChapterOutlines", recentChapterContexts(projectId));
-        context.put("recentChapterSummaries", recentSummaryContexts(projectId));
-        context.put("activeForeshadowThreads", activeThreadContexts(projectId));
+        Map<String, Object> baseContext = new LinkedHashMap<>();
+        baseContext.put("project", projectContext(project));
+        baseContext.put("confirmedSetting", settingContext(setting));
+        baseContext.put("globalOutline", text(outline.getContent()));
+        baseContext.put("existingVolumes", volumes.stream().map(this::volumeContext).toList());
+        baseContext.put("existingArcs", arcs.stream().map(arc -> arcContext(arc, volumeNumbers)).toList());
+        baseContext.put("recentChapterOutlines", recentChapterContexts(projectId));
+        baseContext.put("recentChapterSummaries", recentSummaryContexts(projectId));
+        baseContext.put("activeForeshadowThreads", activeThreadContexts(projectId));
+        return baseContext;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> buildContext(
+            Map<String, Object> baseContext,
+            int startChapterNo,
+            int count,
+            String instruction,
+            List<VolumePlan> pendingVolumes,
+            List<ArcPlan> pendingArcs,
+            List<ChapterPlan> pendingChapters) {
+        Map<String, Object> context = new LinkedHashMap<>(baseContext);
+        List<Map<String, Object>> volumes = (List<Map<String, Object>>) baseContext.get("existingVolumes");
+        List<Map<String, Object>> arcs = (List<Map<String, Object>>) baseContext.get("existingArcs");
+        List<Map<String, Object>> recent = (List<Map<String, Object>>) baseContext.get("recentChapterOutlines");
+        List<Map<String, Object>> volumeContexts = new ArrayList<>(volumes);
+        volumeContexts.addAll(pendingVolumes.stream().map(this::volumePlanContext).toList());
+        List<Map<String, Object>> arcContexts = new ArrayList<>(arcs);
+        arcContexts.addAll(pendingArcs.stream().map(this::arcPlanContext).toList());
+        List<Map<String, Object>> recentChapterOutlines = new ArrayList<>(recent);
+        recentChapterOutlines.addAll(pendingChapters.stream().map(this::chapterPlanContext).toList());
+        if (recentChapterOutlines.size() > 20) {
+            recentChapterOutlines = new ArrayList<>(recentChapterOutlines.subList(
+                    recentChapterOutlines.size() - 20, recentChapterOutlines.size()));
+        }
+        context.put("existingVolumes", volumeContexts);
+        context.put("existingArcs", arcContexts);
+        context.put("recentChapterOutlines", recentChapterOutlines);
         context.put("startChapterNo", startChapterNo);
         context.put("count", count);
         context.put("instruction", text(instruction));
         return context;
+    }
+
+    private Map<String, Object> volumePlanContext(VolumePlan volume) {
+        return Map.of(
+                "volumeNo", volume.volumeNo(),
+                "title", volume.title(),
+                "summary", volume.summary(),
+                "goal", volume.goal(),
+                "estimatedWordCount", volume.estimatedWordCount());
+    }
+
+    private Map<String, Object> arcPlanContext(ArcPlan arc) {
+        return Map.of(
+                "volumeNo", arc.volumeNo(),
+                "arcNo", arc.arcNo(),
+                "title", arc.title(),
+                "summary", arc.summary(),
+                "goal", arc.goal(),
+                "conflict", arc.conflict(),
+                "estimatedChapterCount", arc.estimatedChapterCount());
+    }
+
+    private Map<String, Object> chapterPlanContext(ChapterPlan chapter) {
+        return Map.of(
+                "chapterNo", chapter.chapterNo(),
+                "title", chapter.title(),
+                "outline", chapter.outline(),
+                "scenePlan", chapter.scenePlan());
     }
 
     private Map<String, Object> projectContext(Project project) {
@@ -253,7 +326,6 @@ public class ChapterOutlineContinuationService {
     }
 
     private ParsedBatch parseAndValidateBatch(
-            Long projectId,
             AiGenerateResult result,
             int expectedStart,
             int expectedCount) {
@@ -281,8 +353,52 @@ public class ChapterOutlineContinuationService {
                 throw new BusinessException(ErrorCode.BUSINESS_ERROR, "模型返回的章节编号不连续");
             }
         }
-        validateReferences(projectId, newVolumes, newArcs, chapters);
         return new ParsedBatch(raw, newVolumes, newArcs, chapters);
+    }
+
+    private List<ChapterResponse> persistGeneratedBatches(
+            Long projectId,
+            Outline originalOutline,
+            Map<String, Object> originalBaseContext,
+            int originalLastChapterNo,
+            Long modelConfigId,
+            List<GeneratedBatch> generatedBatches,
+            List<VolumePlan> pendingVolumes,
+            List<ArcPlan> pendingArcs,
+            List<ChapterPlan> pendingChapters) {
+        Project currentProject = requireProjectForUpdate(projectId);
+        Outline currentOutline = requireConfirmedOutline(projectId);
+        if (!Objects.equals(originalOutline.getId(), currentOutline.getId())
+                || !Objects.equals(originalOutline.getContent(), currentOutline.getContent())
+                || !Objects.equals(originalOutline.getUpdatedAt(), currentOutline.getUpdatedAt())) {
+            throw new BusinessException(ErrorCode.BUSINESS_ERROR, "全局大纲已变化，请重新生成章节大纲");
+        }
+        if (!Objects.equals(originalBaseContext, buildBaseContext(currentProject, currentOutline))) {
+            throw new BusinessException(ErrorCode.BUSINESS_ERROR, "续写上下文已变化，请重新生成章节大纲");
+        }
+        Chapter currentLastChapter = chapterMapper.selectOne(new LambdaQueryWrapper<Chapter>()
+                .eq(Chapter::getProjectId, projectId)
+                .orderByDesc(Chapter::getChapterNo)
+                .last("LIMIT 1"));
+        int currentLastChapterNo = currentLastChapter == null ? 0 : currentLastChapter.getChapterNo();
+        if (currentLastChapterNo != originalLastChapterNo) {
+            throw new BusinessException(ErrorCode.BUSINESS_ERROR, "章节大纲已变化，请基于最新章节继续生成");
+        }
+        validateReferences(projectId, pendingVolumes, pendingArcs, pendingChapters);
+
+        List<ChapterResponse> created = new ArrayList<>(pendingChapters.size());
+        for (GeneratedBatch generatedBatch : generatedBatches) {
+            Long jobId = generationJobService.recordFinishedJob(
+                    projectId,
+                    "chapter_outline_continuation",
+                    "global_outline",
+                    currentOutline.getId(),
+                    modelConfigId,
+                    generatedBatch.context(),
+                    generatedBatch.batch().raw());
+            created.addAll(persistBatch(projectId, generatedBatch.batch(), modelConfigId, jobId));
+        }
+        return created;
     }
 
     private void validateReferences(
@@ -524,5 +640,8 @@ public class ChapterOutlineContinuationService {
             List<VolumePlan> newVolumes,
             List<ArcPlan> newArcs,
             List<ChapterPlan> chapters) {
+    }
+
+    private record GeneratedBatch(Map<String, Object> context, ParsedBatch batch) {
     }
 }

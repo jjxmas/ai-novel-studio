@@ -16,28 +16,20 @@ import com.jjxmas.ainovelstudio.pojo.dto.ChapterGenerationBatchSummaryResponse;
 import com.jjxmas.ainovelstudio.pojo.dto.ChapterGenerationResult;
 import com.jjxmas.ainovelstudio.pojo.dto.ChapterQualityCheckResult;
 import com.jjxmas.ainovelstudio.pojo.dto.CheckResponse;
+import com.jjxmas.ainovelstudio.pojo.dto.CheckRequest;
 import com.jjxmas.ainovelstudio.pojo.entity.Chapter;
 import com.jjxmas.ainovelstudio.pojo.entity.GenerationBatch;
 import com.jjxmas.ainovelstudio.pojo.entity.GenerationBatchItem;
-import jakarta.annotation.PreDestroy;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
-import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @Service
 public class ChapterGenerationBatchService {
@@ -51,10 +43,8 @@ public class ChapterGenerationBatchService {
     private final ProjectMapper projectMapper;
     private final ChapterMapper chapterMapper;
     private final ChapterService chapterService;
-    private final ProjectChapterGenerationQueue projectQueue;
-    private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
-    private final ConcurrentHashMap<Long, Boolean> dispatched = new ConcurrentHashMap<>();
-    private final boolean recoveryEnabled;
+    private final CheckService checkService;
+    private final GenerationJobService generationJobService;
 
     public ChapterGenerationBatchService(
             GenerationBatchMapper batchMapper,
@@ -62,15 +52,15 @@ public class ChapterGenerationBatchService {
             ProjectMapper projectMapper,
             ChapterMapper chapterMapper,
             ChapterService chapterService,
-            ProjectChapterGenerationQueue projectQueue,
-            @Value("${app.generation-batches.recovery-enabled:true}") boolean recoveryEnabled) {
+            CheckService checkService,
+            GenerationJobService generationJobService) {
         this.batchMapper = batchMapper;
         this.itemMapper = itemMapper;
         this.projectMapper = projectMapper;
         this.chapterMapper = chapterMapper;
         this.chapterService = chapterService;
-        this.projectQueue = projectQueue;
-        this.recoveryEnabled = recoveryEnabled;
+        this.checkService = checkService;
+        this.generationJobService = generationJobService;
     }
 
     @Transactional
@@ -85,7 +75,7 @@ public class ChapterGenerationBatchService {
                 .in(GenerationBatch::getStatus, ACTIVE_STATUSES)
                 .last("LIMIT 1"));
         if (activeBatch != null) {
-            throw new BusinessException(ErrorCode.BUSINESS_ERROR, "当前作品已有未完成的章节生成批次");
+            throw new BusinessException(ErrorCode.BUSINESS_ERROR, "当前作品已有未完成的章节批次任务");
         }
 
         int endChapterNo = request.getStartChapterNo() + request.getCount() - 1;
@@ -103,6 +93,7 @@ public class ChapterGenerationBatchService {
                 .setBatchType("chapter_content")
                 .setModelConfigId(request.getModelConfigId())
                 .setStatus("queued")
+                .setRunNo(1)
                 .setTotalCount(request.getCount())
                 .setPendingCount(request.getCount() - skippedCount)
                 .setRunningCount(0)
@@ -132,12 +123,82 @@ public class ChapterGenerationBatchService {
             itemMapper.insert(item);
             items.add(item);
         }
-        dispatchAfterCommit(batch.getId(), projectId);
+        enqueueBatch(batch);
+        return toResponse(batch, items);
+    }
+
+    @Transactional
+    public ChapterGenerationBatchResponse createQualityCheckBatch(CheckRequest request) {
+        Long projectId = request.getProjectId();
+        if (projectMapper.selectById(projectId) == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "作品不存在");
+        }
+        GenerationBatch activeBatch = batchMapper.selectOne(new LambdaQueryWrapper<GenerationBatch>()
+                .eq(GenerationBatch::getProjectId, projectId)
+                .in(GenerationBatch::getStatus, ACTIVE_STATUSES)
+                .last("LIMIT 1"));
+        if (activeBatch != null) {
+            throw new BusinessException(ErrorCode.BUSINESS_ERROR, "当前作品已有未完成的章节批次任务");
+        }
+        String checkType = normalizeCheckType(request.getCheckType());
+        List<Chapter> chapters = chapterMapper.selectList(new LambdaQueryWrapper<Chapter>()
+                        .eq(Chapter::getProjectId, projectId)
+                        .isNotNull(Chapter::getContent)
+                        .orderByAsc(Chapter::getChapterNo))
+                .stream()
+                .filter(this::hasContent)
+                .toList();
+        if (chapters.isEmpty()) {
+            throw new BusinessException(ErrorCode.WORKFLOW_GATE_NOT_MET, "请先生成至少一章正文，再进行检查");
+        }
+
+        GenerationBatch batch = new GenerationBatch()
+                .setProjectId(projectId)
+                .setBatchType("quality_check")
+                .setModelConfigId(request.getModelConfigId())
+                .setStatus("queued")
+                .setRunNo(1)
+                .setTotalCount(chapters.size())
+                .setPendingCount(chapters.size())
+                .setRunningCount(0)
+                .setSucceededCount(0)
+                .setFailedCount(0)
+                .setSkippedCount(0)
+                .setQualityCheckedCount(0)
+                .setQualityFailedCount(0)
+                .setQualityIssueCount(0)
+                .setRequestSnapshot(JsonUtils.toJson(Map.of("checkType", checkType)));
+        batchMapper.insert(batch);
+
+        List<GenerationBatchItem> items = new ArrayList<>(chapters.size());
+        for (Chapter chapter : chapters) {
+            GenerationBatchItem item = new GenerationBatchItem()
+                    .setBatchId(batch.getId())
+                    .setProjectId(projectId)
+                    .setChapterId(chapter.getId())
+                    .setChapterNo(chapter.getChapterNo())
+                    .setItemType("quality_check")
+                    .setStatus("pending")
+                    .setAttemptCount(0)
+                    .setQualityStatus("pending")
+                    .setQualityIssueCount(0);
+            itemMapper.insert(item);
+            items.add(item);
+        }
+        enqueueBatch(batch);
         return toResponse(batch, items);
     }
 
     public ChapterGenerationBatchResponse getBatch(Long batchId) {
         GenerationBatch batch = requireBatch(batchId);
+        return toResponse(batch, listItems(batchId));
+    }
+
+    public ChapterGenerationBatchResponse getQualityCheckBatch(Long batchId) {
+        GenerationBatch batch = requireBatch(batchId);
+        if (!"quality_check".equals(batch.getBatchType())) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "全书检查批次不存在");
+        }
         return toResponse(batch, listItems(batchId));
     }
 
@@ -161,6 +222,18 @@ public class ChapterGenerationBatchService {
                 .last("LIMIT 1"));
         if (batch == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "当前作品还没有章节生成批次");
+        }
+        return toResponse(batch, listItems(batch.getId()));
+    }
+
+    public ChapterGenerationBatchResponse getLatestQualityCheckBatch(Long projectId) {
+        GenerationBatch batch = batchMapper.selectOne(new LambdaQueryWrapper<GenerationBatch>()
+                .eq(GenerationBatch::getProjectId, projectId)
+                .eq(GenerationBatch::getBatchType, "quality_check")
+                .orderByDesc(GenerationBatch::getId)
+                .last("LIMIT 1"));
+        if (batch == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "当前作品还没有全书检查批次");
         }
         return toResponse(batch, listItems(batch.getId()));
     }
@@ -196,9 +269,12 @@ public class ChapterGenerationBatchService {
         if (!"paused".equals(batch.getStatus())) {
             throw new BusinessException(ErrorCode.BUSINESS_ERROR, "只有暂停中的批次可以继续");
         }
-        batch.setStatus("queued").setFinishedAt(null).setErrorMessage(null);
+        batch.setStatus("queued")
+                .setRunNo(value(batch.getRunNo()) + 1)
+                .setFinishedAt(null)
+                .setErrorMessage(null);
         batchMapper.updateById(batch);
-        dispatchAfterCommit(batch.getId(), batch.getProjectId());
+        enqueueBatch(batch);
         return toResponse(batch, listItems(batchId));
     }
 
@@ -227,22 +303,30 @@ public class ChapterGenerationBatchService {
                     .setFinishedAt(null);
             itemMapper.updateById(item);
         }
-        batch.setStatus("queued").setFinishedAt(null).setErrorMessage(null);
+        batch.setStatus("queued")
+                .setRunNo(value(batch.getRunNo()) + 1)
+                .setFinishedAt(null)
+                .setErrorMessage(null);
         batchMapper.updateById(batch);
         refreshCounts(batchId);
-        dispatchAfterCommit(batch.getId(), batch.getProjectId());
+        enqueueBatch(batch);
         return getBatch(batchId);
     }
 
     void processBatch(Long batchId) {
+        processQueuedBatch(batchId, () -> {});
+    }
+
+    public String processQueuedBatch(Long batchId, Runnable heartbeat) {
         GenerationBatch batch = batchMapper.selectById(batchId);
         if (batch == null || TERMINAL_STATUSES.contains(batch.getStatus()) || "paused".equals(batch.getStatus())) {
-            return;
+            return batch == null ? "missing" : batch.getStatus();
         }
         if ("cancel_requested".equals(batch.getStatus())) {
             cancelRemainingItems(batch);
-            return;
+            return "cancelled";
         }
+        resetRunningItems(batchId);
         batch.setStatus("running");
         if (batch.getStartedAt() == null) {
             batch.setStartedAt(LocalDateTime.now());
@@ -250,22 +334,26 @@ public class ChapterGenerationBatchService {
         batchMapper.updateById(batch);
 
         for (GenerationBatchItem item : listItems(batchId)) {
+            heartbeat.run();
             GenerationBatch currentBatch = batchMapper.selectById(batchId);
             if (currentBatch == null || "paused".equals(currentBatch.getStatus())) {
-                return;
+                return currentBatch == null ? "missing" : "paused";
             }
             if ("cancel_requested".equals(currentBatch.getStatus())) {
                 cancelRemainingItems(currentBatch);
-                return;
+                return "cancelled";
             }
             GenerationBatchItem currentItem = itemMapper.selectById(item.getId());
             if (currentItem == null || !"pending".equals(currentItem.getStatus())) {
                 continue;
             }
             executeItem(currentBatch, currentItem);
+            heartbeat.run();
             refreshCounts(batchId);
         }
         finishBatch(batchId);
+        GenerationBatch finished = batchMapper.selectById(batchId);
+        return finished == null ? "missing" : finished.getStatus();
     }
 
     private void executeItem(GenerationBatch batch, GenerationBatchItem item) {
@@ -280,25 +368,44 @@ public class ChapterGenerationBatchService {
                 .setErrorMessage(null);
         itemMapper.updateById(item);
         try {
-            ChapterGenerateRequest request = new ChapterGenerateRequest();
-            request.setProjectId(batch.getProjectId());
-            request.setChapterId(item.getChapterId());
-            request.setChapterNo(item.getChapterNo());
-            request.setModelConfigId(batch.getModelConfigId());
-            request.setRevisionAdvice(batchInstruction(batch));
-            ChapterGenerationResult result = chapterService.generateChapterForBatch(request);
-            item.setStatus("succeeded")
-                    .setGenerationJobId(result.getGenerationJobId())
-                    .setFinishedAt(LocalDateTime.now());
-            applyQualityResult(item, result.getQualityCheck());
+            if ("quality_check".equals(batch.getBatchType())) {
+                executeQualityCheckItem(batch, item);
+            } else {
+                ChapterGenerateRequest request = new ChapterGenerateRequest();
+                request.setProjectId(batch.getProjectId());
+                request.setChapterId(item.getChapterId());
+                request.setChapterNo(item.getChapterNo());
+                request.setModelConfigId(batch.getModelConfigId());
+                request.setRevisionAdvice(batchInstruction(batch));
+                ChapterGenerationResult result = chapterService.generateChapterForBatch(request);
+                item.setStatus("succeeded")
+                        .setGenerationJobId(result.getGenerationJobId())
+                        .setFinishedAt(LocalDateTime.now());
+                applyQualityResult(item, result.getQualityCheck());
+            }
         } catch (RuntimeException ex) {
             item.setStatus("failed")
-                    .setQualityStatus("not_run")
+                    .setQualityStatus("quality_check".equals(batch.getBatchType()) ? "failed" : "not_run")
+                    .setQualityErrorMessage("quality_check".equals(batch.getBatchType()) ? errorMessage(ex) : null)
                     .setErrorMessage(errorMessage(ex))
                     .setFinishedAt(LocalDateTime.now());
             log.error("Chapter batch item failed. batchId={}, chapterNo={}", batch.getId(), item.getChapterNo(), ex);
         }
         itemMapper.updateById(item);
+    }
+
+    private void executeQualityCheckItem(GenerationBatch batch, GenerationBatchItem item) {
+        CheckRequest request = new CheckRequest();
+        request.setProjectId(batch.getProjectId());
+        request.setChapterId(item.getChapterId());
+        request.setModelConfigId(batch.getModelConfigId());
+        request.setCheckType(text(JsonUtils.toMap(batch.getRequestSnapshot()).get("checkType")));
+        CheckResponse report = checkService.runCheck(request);
+        item.setStatus("succeeded")
+                .setQualityStatus("completed")
+                .setQualityIssueCount(value(report.getIssueCount()))
+                .setQualityReport(JsonUtils.toJson(report))
+                .setFinishedAt(LocalDateTime.now());
     }
 
     private void finishBatch(Long batchId) {
@@ -399,7 +506,7 @@ public class ChapterGenerationBatchService {
     private GenerationBatch requireBatch(Long batchId) {
         GenerationBatch batch = batchMapper.selectById(batchId);
         if (batch == null) {
-            throw new BusinessException(ErrorCode.NOT_FOUND, "章节生成批次不存在");
+            throw new BusinessException(ErrorCode.NOT_FOUND, "章节批次不存在");
         }
         return batch;
     }
@@ -477,92 +584,65 @@ public class ChapterGenerationBatchService {
                 .build();
     }
 
-    private void dispatchAfterCommit(Long batchId, Long projectId) {
-        Runnable dispatch = () -> dispatch(batchId, projectId);
-        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-            dispatch.run();
-            return;
-        }
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                dispatch.run();
-            }
-        });
+    private void enqueueBatch(GenerationBatch batch) {
+        String jobType = "quality_check".equals(batch.getBatchType())
+                ? "quality_check_batch"
+                : "chapter_generation_batch";
+        generationJobService.enqueueJob(
+                batch.getProjectId(),
+                jobType,
+                "generation_batch",
+                batch.getId(),
+                batch.getModelConfigId(),
+                Map.of("batchId", batch.getId(), "runNo", batch.getRunNo()),
+                batch.getId() + ":" + batch.getRunNo(),
+                0,
+                LocalDateTime.now());
     }
 
-    private void dispatch(Long batchId, Long projectId) {
-        if (dispatched.putIfAbsent(batchId, true) != null) {
-            return;
+    private String normalizeCheckType(String checkType) {
+        String normalized = text(checkType).toLowerCase();
+        if (!Set.of("all", "continuity", "style").contains(normalized)) {
+            throw new BusinessException(ErrorCode.PARAMETER_ERROR, "检查类型只支持 all、continuity 或 style");
         }
-        executor.submit(() -> {
-            try {
-                projectQueue.enqueueTask(projectId, () -> processBatch(batchId)).block();
-            } catch (RuntimeException ex) {
-                markBatchFailed(batchId, ex);
-            } finally {
-                dispatched.remove(batchId);
-                GenerationBatch latest = batchMapper.selectById(batchId);
-                if (latest != null && "queued".equals(latest.getStatus())) {
-                    dispatch(batchId, projectId);
-                }
-            }
-        });
+        return normalized;
     }
 
-    private void markBatchFailed(Long batchId, RuntimeException ex) {
+    private void resetRunningItems(Long batchId) {
+        for (GenerationBatchItem item : listItems(batchId)) {
+            if ("running".equals(item.getStatus())) {
+                item.setStatus("pending")
+                        .setQualityStatus("pending")
+                        .setQualityIssueCount(0)
+                        .setQualityReport(null)
+                        .setQualityErrorMessage(null)
+                        .setStartedAt(null);
+                itemMapper.updateById(item);
+            }
+        }
+        refreshCounts(batchId);
+    }
+
+    @Transactional
+    public void markQueueFailure(Long batchId, String errorMessage) {
         GenerationBatch batch = batchMapper.selectById(batchId);
-        if (batch == null || TERMINAL_STATUSES.contains(batch.getStatus())) {
+        if (batch == null || TERMINAL_STATUSES.contains(batch.getStatus()) || "paused".equals(batch.getStatus())) {
             return;
+        }
+        for (GenerationBatchItem item : listItems(batchId)) {
+            if ("pending".equals(item.getStatus()) || "running".equals(item.getStatus())) {
+                item.setStatus("failed")
+                        .setErrorMessage(errorMessage)
+                        .setFinishedAt(LocalDateTime.now());
+                itemMapper.updateById(item);
+            }
         }
         batch.setStatus("failed")
-                .setErrorMessage(errorMessage(ex))
+                .setErrorMessage(errorMessage)
                 .setFinishedAt(LocalDateTime.now());
         batchMapper.updateById(batch);
-        log.error("Chapter generation batch failed. batchId={}", batchId, ex);
-    }
-
-    @EventListener(ApplicationReadyEvent.class)
-    public void recoverInterruptedBatches() {
-        if (!recoveryEnabled) {
-            return;
-        }
-        executor.submit(() -> {
-            try {
-                List<GenerationBatch> batches = batchMapper.selectList(new LambdaQueryWrapper<GenerationBatch>()
-                        .in(GenerationBatch::getStatus, ACTIVE_STATUSES));
-                for (GenerationBatch batch : batches) {
-                    if ("cancel_requested".equals(batch.getStatus())) {
-                        cancelRemainingItems(batch);
-                        continue;
-                    }
-                    for (GenerationBatchItem item : listItems(batch.getId())) {
-                        if ("running".equals(item.getStatus())) {
-                            item.setStatus("pending")
-                                    .setQualityStatus("pending")
-                                    .setQualityIssueCount(0)
-                                    .setQualityReport(null)
-                                    .setQualityErrorMessage(null)
-                                    .setStartedAt(null);
-                            itemMapper.updateById(item);
-                        }
-                    }
-                    refreshCounts(batch.getId());
-                    if (!"paused".equals(batch.getStatus())) {
-                        batch.setStatus("queued");
-                        batchMapper.updateById(batch);
-                        dispatch(batch.getId(), batch.getProjectId());
-                    }
-                }
-            } catch (RuntimeException ex) {
-                log.warn("Unable to recover interrupted chapter generation batches", ex);
-            }
-        });
-    }
-
-    @PreDestroy
-    public void shutdown() {
-        executor.shutdownNow();
+        refreshCounts(batchId);
+        log.error("Chapter generation batch queue failed. batchId={}, error={}", batchId, errorMessage);
     }
 
     private int value(Integer value) {

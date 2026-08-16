@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 
 import PageShell from '@/components/PageShell.vue';
 import { useNovelWorkspace } from '@/composables/useNovelWorkspace';
@@ -16,6 +16,16 @@ const exportScopes = [
 const { state, activeProject, createExport } = useNovelWorkspace();
 const format = ref<'markdown' | 'txt'>('markdown');
 const scope = ref('full_project');
+const scopeEntityId = ref<number | null>(null);
+const scopeOptions = computed(() => scope.value === 'volume'
+  ? (state.outline?.volumes ?? []).map((volume) => ({ id: volume.id, label: `第 ${volume.volumeNo} 卷 ${volume.title}` }))
+  : state.chapters.map((chapter) => ({ id: chapter.id, label: `第 ${chapter.chapterNo ?? ''} 章 ${chapter.title}` })));
+const canExport = computed(() => scope.value === 'full_project' || scopeEntityId.value !== null);
+
+function changeScope(value: string) {
+  scope.value = value;
+  scopeEntityId.value = null;
+}
 </script>
 
 <template>
@@ -27,8 +37,8 @@ const scope = ref('full_project');
       <button
         class="toolbar__button"
         type="button"
-        :disabled="!activeProject"
-        @click="createExport(format, scope)"
+        :disabled="!activeProject || !canExport"
+        @click="createExport(format, scope, scopeEntityId ?? undefined)"
       >
         立即导出
       </button>
@@ -44,8 +54,15 @@ const scope = ref('full_project');
         <div class="card__title">导出范围</div>
         <label class="field">
           <span>范围</span>
-          <select v-model="scope">
+          <select :value="scope" @change="changeScope(($event.target as HTMLSelectElement).value)">
             <option v-for="item in exportScopes" :key="item.value" :value="item.value">{{ item.label }}</option>
+          </select>
+        </label>
+        <label v-if="scope !== 'full_project'" class="field">
+          <span>{{ scope === 'volume' ? '卷' : '章节' }}</span>
+          <select v-model="scopeEntityId">
+            <option :value="null">请选择范围</option>
+            <option v-for="item in scopeOptions" :key="item.id" :value="item.id">{{ item.label }}</option>
           </select>
         </label>
       </section>

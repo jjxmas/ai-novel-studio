@@ -6,7 +6,6 @@ import com.jjxmas.ainovelstudio.pojo.dto.EntityStateRecordResponse;
 import com.jjxmas.ainovelstudio.pojo.dto.EntityStateRecordUpsertRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.OrganizationResponse;
 import com.jjxmas.ainovelstudio.pojo.dto.OrganizationUpsertRequest;
-import com.jjxmas.ainovelstudio.pojo.dto.SettingLibraryGenerateRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.SettingLibraryResponse;
 import com.jjxmas.ainovelstudio.pojo.dto.SettingLibraryRewriteRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.SettingLibrarySnapshotResponse;
@@ -25,7 +24,12 @@ import java.util.List;
 
 public interface SettingLibraryService {
 
-    SettingLibraryResponse generateSettingLibrary(SettingLibraryGenerateRequest request);
+    SettingLibraryResponse commitWorkflowDraft(
+            Long projectId,
+            Long sourceIdeaId,
+            String overview,
+            Long modelConfigId,
+            Long workflowId);
 
     SettingLibraryResponse getSettingLibrary(Long projectId);
 

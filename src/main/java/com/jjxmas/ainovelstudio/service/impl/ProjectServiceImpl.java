@@ -130,6 +130,9 @@ public class ProjectServiceImpl extends ServiceImpl<ProjectMapper, Project> impl
         if (project.getStatus() == null) {
             project.setStatus("drafting");
         }
+        if (project.getWorkflowStage() == null) {
+            project.setWorkflowStage("idea");
+        }
     }
 
     /**
@@ -146,6 +149,7 @@ public class ProjectServiceImpl extends ServiceImpl<ProjectMapper, Project> impl
         snapshot.put("stylePreference", project.getStylePreference());
         snapshot.put("projectBrief", project.getProjectBrief());
         snapshot.put("status", project.getStatus());
+        snapshot.put("workflowStage", project.getWorkflowStage());
         return snapshot;
     }
 

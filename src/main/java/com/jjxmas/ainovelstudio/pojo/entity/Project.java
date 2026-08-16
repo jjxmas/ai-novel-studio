@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler;
 import com.jjxmas.ainovelstudio.common.entity.BaseEntity;
+import java.time.LocalDateTime;
 import java.util.List;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -37,5 +38,9 @@ public class Project extends BaseEntity {
 
     private String status;
 
+    private String workflowStage;
+
     private Long selectedIdeaId;
+
+    private LocalDateTime lastExportedAt;
 }

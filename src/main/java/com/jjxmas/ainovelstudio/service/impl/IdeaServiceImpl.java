@@ -195,38 +195,57 @@ public class IdeaServiceImpl extends ServiceImpl<IdeaMapper, Idea> implements Id
      * 根据用户指令调用 AI 重写指定创意。
      */
     @Override
-    @Transactional
     public IdeaResponse rewriteIdea(Long ideaId, IdeaRewriteRequest request) {
         Idea idea = requireIdea(ideaId);
+        Map<String, Object> originalSnapshot = ideaSnapshot(idea);
         AiGenerateResult result = aiOrchestratorService.rewriteIdea(
                 request.getModelConfigId(),
-                ideaSnapshot(idea).toString(),
+                JsonUtils.toJson(originalSnapshot),
                 request.getInstruction());
-        String content = defaultText(result.getContent(), idea.getSummary() + "\n\n根据修改意见调整：" + request.getInstruction());
-        idea.setTitle(extractField(content, "标题", defaultText(idea.getTitle(), "重写后的创意方案")))
-                .setWorldview(extractField(content, "世界观", defaultText(idea.getWorldview(), "")))
-                .setMainConflict(extractField(content, "主线冲突", defaultText(idea.getMainConflict(), "根据修改意见补强主线冲突")))
-                .setSummary(content)
-                .setModelConfigId(request.getModelConfigId());
-        updateById(idea);
-        Long jobId = generationJobService.recordFinishedJob(
-                idea.getProjectId(),
-                "idea_rewrite",
-                "idea",
-                idea.getId(),
-                request.getModelConfigId(),
-                Map.of("instruction", request.getInstruction()),
-                Map.of("idea", ideaSnapshot(idea), "modelName", defaultText(result.getModelName(), "")));
-        versionService.recordVersion(
-                idea.getProjectId(),
-                "idea",
-                idea.getId(),
-                ideaSnapshot(idea),
-                "ai_rewrite",
-                "根据用户修改意见重生成创意",
-                request.getModelConfigId(),
-                jobId);
-        return toResponse(idea);
+        if (result == null || Boolean.FALSE.equals(result.getSuccess()) || defaultText(result.getContent(), "").isBlank()) {
+            throw new BusinessException(ErrorCode.AI_TASK_UNAVAILABLE, "创意重写模型未返回有效结果");
+        }
+        String content = result.getContent().trim();
+        String title = extractField(content, "标题", defaultText(idea.getTitle(), "重写后的创意方案"));
+        String worldview = extractField(content, "世界观", defaultText(idea.getWorldview(), ""));
+        String mainConflict = extractField(
+                content,
+                "主线冲突",
+                defaultText(idea.getMainConflict(), "根据修改意见补强主线冲突"));
+        return transactionTemplate.execute(status -> {
+            Idea currentIdea = baseMapper.selectByIdForUpdate(ideaId);
+            if (currentIdea == null) {
+                throw new BusinessException(ErrorCode.NOT_FOUND, "创意不存在");
+            }
+            if (!originalSnapshot.equals(ideaSnapshot(currentIdea))) {
+                throw new BusinessException(ErrorCode.BUSINESS_ERROR, "创意已被修改，请基于最新内容重新生成");
+            }
+            currentIdea.setTitle(title)
+                    .setWorldview(worldview)
+                    .setMainConflict(mainConflict)
+                    .setSummary(content)
+                    .setModelConfigId(request.getModelConfigId());
+            updateById(currentIdea);
+            Map<String, Object> snapshot = ideaSnapshot(currentIdea);
+            Long jobId = generationJobService.recordFinishedJob(
+                    currentIdea.getProjectId(),
+                    "idea_rewrite",
+                    "idea",
+                    currentIdea.getId(),
+                    request.getModelConfigId(),
+                    Map.of("instruction", request.getInstruction()),
+                    Map.of("idea", snapshot, "modelName", defaultText(result.getModelName(), "")));
+            versionService.recordVersion(
+                    currentIdea.getProjectId(),
+                    "idea",
+                    currentIdea.getId(),
+                    snapshot,
+                    "ai_rewrite",
+                    "根据用户修改意见重生成创意",
+                    request.getModelConfigId(),
+                    jobId);
+            return toResponse(currentIdea);
+        });
     }
 
     /**
@@ -244,7 +263,7 @@ public class IdeaServiceImpl extends ServiceImpl<IdeaMapper, Idea> implements Id
         updateById(idea);
 
         Project project = requireProject(idea.getProjectId());
-        project.setSelectedIdeaId(idea.getId()).setStatus("idea_selected");
+        project.setSelectedIdeaId(idea.getId()).setWorkflowStage("setting");
         projectMapper.updateById(project);
         versionService.recordVersion(
                 project.getId(),
@@ -313,10 +332,6 @@ public class IdeaServiceImpl extends ServiceImpl<IdeaMapper, Idea> implements Id
                 .setSummary(textValue(ideaMap, "summary", ""))
                 .setStatus("candidate")
                 .setModelConfigId(config.getId());
-        save(aiIdea);
-        if (aiIdea.getId() == null) {
-            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "创意保存成功但 ID 未回填");
-        }
 
         AiGenerateResult evaluationResult = aiOrchestratorService.evaluateIdea(config.getId(), context, ideaMap);
         if (evaluationResult == null || evaluationResult.getContent() == null || evaluationResult.getContent().isBlank()) {
@@ -329,7 +344,6 @@ public class IdeaServiceImpl extends ServiceImpl<IdeaMapper, Idea> implements Id
         }
 
         IdeaEvaluation ideaEvaluation = new IdeaEvaluation()
-                .setIdeaId(aiIdea.getId())
                 .setRoundNo(1)
                 .setLongFormPotentialScore(doubleValue(evaluationMap, "longFormPotentialScore", 0.0))
                 .setConflictScore(doubleValue(evaluationMap, "conflictScore", 0.0))
@@ -342,33 +356,45 @@ public class IdeaServiceImpl extends ServiceImpl<IdeaMapper, Idea> implements Id
                 .setSuggestions((List<String>) evaluationMap.get("suggestions"))
                 .setOverallComment(textValue(evaluationMap, "overallComment", ""))
                 .setModelConfigId(config.getId());
-        ideaEvaluationMapper.insert(ideaEvaluation);
+        return transactionTemplate.execute(status -> {
+            Project currentProject = requireProject(project.getId());
+            String currentGenres = String.join(
+                    " + ", currentProject.getGenres() == null ? List.of() : currentProject.getGenres());
+            if (!context.equals(ideaContext(currentProject, request, currentGenres))) {
+                throw new BusinessException(ErrorCode.BUSINESS_ERROR, "作品创意上下文已变化，请重新生成");
+            }
+            save(aiIdea);
+            if (aiIdea.getId() == null) {
+                throw new BusinessException(ErrorCode.SYSTEM_ERROR, "创意保存成功但 ID 未回填");
+            }
+            ideaEvaluation.setIdeaId(aiIdea.getId());
+            ideaEvaluationMapper.insert(ideaEvaluation);
 
-        Map<String, Object> snapshot = ideaSnapshot(aiIdea);
-        Long jobId = generationJobService.recordFinishedJob(
-                project.getId(),
-                "idea_generation",
-                "idea",
-                aiIdea.getId(),
-                config.getId(),
-                Map.of("context", context),
-                Map.of(
-                        "idea", snapshot,
-                        "evaluation", evaluationMap,
-                        "modelName", defaultText(ideaResult.getModelName(), "")
-                ));
+            Map<String, Object> snapshot = ideaSnapshot(aiIdea);
+            Long jobId = generationJobService.recordFinishedJob(
+                    currentProject.getId(),
+                    "idea_generation",
+                    "idea",
+                    aiIdea.getId(),
+                    config.getId(),
+                    Map.of("context", context),
+                    Map.of(
+                            "idea", snapshot,
+                            "evaluation", evaluationMap,
+                            "modelName", defaultText(ideaResult.getModelName(), "")
+                    ));
 
-        versionService.recordVersion(
-                project.getId(),
-                "idea",
-                aiIdea.getId(),
-                snapshot,
-                "ai_generate",
-                "AI 生成创意",
-                config.getId(),
-                jobId);
-
-        return toResponse(aiIdea, ideaEvaluation);
+            versionService.recordVersion(
+                    currentProject.getId(),
+                    "idea",
+                    aiIdea.getId(),
+                    snapshot,
+                    "ai_generate",
+                    "AI 生成创意",
+                    config.getId(),
+                    jobId);
+            return toResponse(aiIdea, ideaEvaluation);
+        });
     }
     private String textValue(Map<String, Object> map, String key, String fallback) {
         Object value = map.get(key);

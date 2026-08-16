@@ -361,7 +361,7 @@ watch(activeLevel, (level) => {
               <div class="list-item__title">{{ chapter.title }}</div>
               <div class="list-item__text">{{ chapter.outline }}</div>
             </div>
-            <span class="badge">{{ chapter.content ? '已有正文' : '待正文' }}</span>
+            <span class="badge">{{ chapter.hasContent ? '已有正文' : '待正文' }}</span>
           </article>
         </div>
         <p class="helper-text">{{ state.lastMessage }}</p>

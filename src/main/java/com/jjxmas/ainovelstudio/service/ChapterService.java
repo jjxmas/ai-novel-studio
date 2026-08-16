@@ -4,6 +4,8 @@ import com.jjxmas.ainovelstudio.pojo.dto.ChapterContentUpdateRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.ChapterGenerateRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.ChapterGenerationResult;
 import com.jjxmas.ainovelstudio.pojo.dto.ChapterResponse;
+import com.jjxmas.ainovelstudio.pojo.dto.ChapterCatalogResponse;
+import com.jjxmas.ainovelstudio.pojo.dto.ChapterPageResponse;
 import com.jjxmas.ainovelstudio.pojo.dto.ChapterRewriteRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.ChapterStreamEvent;
 import java.util.List;
@@ -11,7 +13,11 @@ import reactor.core.publisher.Flux;
 
 public interface ChapterService {
 
-    List<ChapterResponse> listChapters(Long projectId);
+    List<ChapterCatalogResponse> listChapterCatalog(Long projectId);
+
+    ChapterPageResponse listChapters(Long projectId, String keyword, int page, int size);
+
+    ChapterResponse getChapter(Long chapterId);
 
     void confirmChapterOutline(Long chapterId);
 

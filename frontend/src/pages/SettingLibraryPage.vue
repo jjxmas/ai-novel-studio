@@ -40,7 +40,6 @@ const {
   loadIdeas,
   loadLatestSettingWorkflow,
   loadSettingSnapshot,
-  generateSettingLibrary,
   startSettingWorkflow,
   approveSettingWorkflowBlueprint,
   regenerateSettingWorkflowModule,
@@ -655,9 +654,6 @@ async function removeStateRecord() {
   <PageShell title="设定库" description="把创意拆成可维护的结构化事实，先固定稳定档案，再追踪事件和状态变化。">
     <template #actions>
       <div class="toolbar">
-        <button class="toolbar__button" type="button" :disabled="!canGenerateSetting" @click="generateSettingLibrary">
-          生成设定库
-        </button>
         <button
           class="toolbar__button toolbar__button--ghost"
           type="button"

@@ -17,6 +17,7 @@ public class GenerationBatch extends BaseEntity {
     private String batchType;
     private Long modelConfigId;
     private String status;
+    private Integer runNo;
     private Integer totalCount;
     private Integer pendingCount;
     private Integer runningCount;

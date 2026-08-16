@@ -36,7 +36,17 @@ public class Chapter extends BaseEntity {
 
     private String status;
 
+    private String contentStatus;
+
     private LocalDateTime confirmedOutlineAt;
+
+    private LocalDateTime contentGeneratedAt;
+
+    private LocalDateTime contentUpdatedAt;
+
+    private Long lastGenerationJobId;
+
+    private Integer lastContentVersionNo;
 
     private LocalDateTime checkedAt;
 }

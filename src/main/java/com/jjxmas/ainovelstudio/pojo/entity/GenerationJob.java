@@ -24,6 +24,8 @@ public class GenerationJob extends BaseEntity {
 
     private Long relatedEntityId;
 
+    private String dedupeKey;
+
     private Long modelConfigId;
 
     private String status;

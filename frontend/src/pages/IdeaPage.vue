@@ -23,10 +23,21 @@ const generationForm = reactive({
   suggestion: '',
 });
 const rewriteSuggestion = ref('');
+const ideaDraft = ref<Idea | null>(null);
 
 const activeIdea = computed(() => {
   return state.ideas.find((idea) => idea.id === activeIdeaId.value) ?? null;
 });
+
+watch(activeIdea, (idea) => {
+  ideaDraft.value = idea ? { ...idea } : null;
+}, { deep: true, immediate: true });
+
+async function saveIdeaDraft() {
+  if (ideaDraft.value) {
+    await updateIdea({ ...ideaDraft.value });
+  }
+}
 
 const evaluationMetrics = computed(() => {
   if (!activeIdea.value) {
@@ -260,17 +271,17 @@ function sellingPoints(text: string) {
             </div>
           </section>
 
-          <label class="field">
+          <label v-if="ideaDraft" class="field">
             <span>世界观</span>
-            <textarea v-model="activeIdea.worldview" class="idea-textarea" rows="8" @blur="updateIdea(activeIdea)"></textarea>
+            <textarea v-model="ideaDraft.worldview" class="idea-textarea" rows="8" @blur="saveIdeaDraft"></textarea>
           </label>
-          <label class="field">
+          <label v-if="ideaDraft" class="field">
             <span>主线冲突</span>
-            <textarea v-model="activeIdea.mainConflict" class="idea-textarea" rows="8" @blur="updateIdea(activeIdea)"></textarea>
+            <textarea v-model="ideaDraft.mainConflict" class="idea-textarea" rows="8" @blur="saveIdeaDraft"></textarea>
           </label>
-          <label class="field">
+          <label v-if="ideaDraft" class="field">
             <span>创意正文</span>
-            <textarea v-model="activeIdea.content" class="text-editor" rows="8" @blur="updateIdea(activeIdea)"></textarea>
+            <textarea v-model="ideaDraft.content" class="text-editor" rows="8" @blur="saveIdeaDraft"></textarea>
           </label>
           <label class="field">
             <span>修改意见</span>

@@ -26,6 +26,7 @@ public class PromptTemplateService {
             case CHAPTER_SUMMARY -> "你是小说章节摘要助手。请提取剧情、人物状态、地点移动和伏笔变化，输出中文摘要。";
             case MEMORY_COMPRESSION -> "你是长篇小说记忆压缩助手。请把多条摘要压缩成一条中高层记忆，保留主线、人物变化和伏笔。";
             case GLOBAL_MEMORY_UPDATE -> "你是长篇小说总摘要维护助手。请根据旧总摘要和新阶段摘要更新全局总摘要。";
+            case CONTINUITY_CHECK, STYLE_CHECK -> "你是严谨的中文长篇小说质检编辑。只根据给定正文判断，不得编造问题。只输出合法 JSON，不要输出 Markdown、解释或代码围栏。";
             default -> "你是小说创作助手。请按用户要求输出中文内容。";
         };
     }
@@ -361,6 +362,55 @@ public class PromptTemplateService {
 
                 要求：输出一版新的全局总摘要，避免无限变长。
                 """.formatted(blankToDefault(oldGlobal, "暂无"), newMemory);
+    }
+
+    public String qualityCheckPrompt(String checkType, Map<String, Object> context) {
+        String dimensions = "style".equals(checkType)
+                ? "只检查语气风格、模板化表达、概述式表达、重复措辞和明显 AI 腔。"
+                : "all".equals(checkType)
+                        ? "检查人物状态、时间线、地点移动、设定连续性、语气风格、模板化表达和明显 AI 腔。"
+                        : "只检查与上一章的承接、人物状态、时间线、地点移动和设定连续性。";
+        return """
+                对下面这一章执行质量检查。
+                检查范围：%s
+
+                【章节信息】
+                章节序号：%s
+                标题：%s
+                大纲：%s
+                正文：
+                %s
+
+                【上一章信息】
+                章节序号：%s
+                标题：%s
+                结尾片段：
+                %s
+
+                【输出 JSON 结构】
+                {
+                  "summary": "本次检查结论",
+                  "issues": [
+                    {
+                      "type": "continuity|character_state|timeline|location|setting|style|ai_trace",
+                      "severity": "high|medium|low",
+                      "description": "可由正文定位的具体问题",
+                      "suggestion": "可执行的修改建议",
+                      "reference": "对应章节、情节或原文短句"
+                    }
+                  ]
+                }
+
+                没有发现问题时 issues 必须返回空数组。不要为了凑数制造问题；reference 不要大段复制正文。
+                """.formatted(
+                dimensions,
+                context.get("chapterNo"),
+                context.get("title"),
+                context.get("outline"),
+                context.get("content"),
+                context.get("previousChapterNo"),
+                context.get("previousTitle"),
+                context.get("previousTail"));
     }
 
     private int safeChapterNo(ChapterContext context) {

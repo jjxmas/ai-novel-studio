@@ -1,5 +1,6 @@
 package com.jjxmas.ainovelstudio.pojo.dto;
 
+import java.time.LocalDateTime;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -13,6 +14,8 @@ public class VersionResponse {
 
     private Long id;
 
+    private Long projectId;
+
     private String entityType;
 
     private Long entityId;
@@ -21,8 +24,17 @@ public class VersionResponse {
 
     private String changeSource;
 
+    private String operationType;
+
     private String changeNote;
 
-    private String snapshot;
-}
+    private String revisionInstruction;
 
+    private Long modelConfigId;
+
+    private Long jobId;
+
+    private String snapshot;
+
+    private LocalDateTime createdAt;
+}

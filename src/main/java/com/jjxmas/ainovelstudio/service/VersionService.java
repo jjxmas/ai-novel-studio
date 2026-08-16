@@ -22,7 +22,7 @@ public interface VersionService {
     /**
      * 为指定实体记录新的内容版本快照。
      */
-    void recordVersion(
+    int recordVersion(
             Long projectId,
             String entityType,
             Long entityId,

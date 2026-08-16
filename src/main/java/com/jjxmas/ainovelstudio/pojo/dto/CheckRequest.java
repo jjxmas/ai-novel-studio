@@ -14,6 +14,8 @@ public class CheckRequest {
 
     private Long chapterId;
 
+    private Long modelConfigId;
+
     @NotNull(message = "检查类型不能为空")
     private String checkType;
 

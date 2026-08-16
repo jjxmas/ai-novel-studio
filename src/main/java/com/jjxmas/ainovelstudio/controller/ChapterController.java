@@ -4,6 +4,8 @@ import com.jjxmas.ainovelstudio.common.api.ApiResponse;
 import com.jjxmas.ainovelstudio.pojo.dto.ChapterContentUpdateRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.ChapterGenerateRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.ChapterResponse;
+import com.jjxmas.ainovelstudio.pojo.dto.ChapterCatalogResponse;
+import com.jjxmas.ainovelstudio.pojo.dto.ChapterPageResponse;
 import com.jjxmas.ainovelstudio.pojo.dto.ChapterRewriteRequest;
 import com.jjxmas.ainovelstudio.pojo.dto.ChapterStreamEvent;
 import com.jjxmas.ainovelstudio.service.ChapterService;
@@ -18,6 +20,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RequestParam;
 import reactor.core.publisher.Flux;
 
 @RestController
@@ -33,8 +36,22 @@ public class ChapterController {
     }
 
     @GetMapping("/projects/{projectId}/chapters")
-    public ApiResponse<List<ChapterResponse>> listChapters(@PathVariable Long projectId) {
-        return ApiResponse.success(chapterService.listChapters(projectId));
+    public ApiResponse<ChapterPageResponse> listChapters(
+            @PathVariable Long projectId,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return ApiResponse.success(chapterService.listChapters(projectId, keyword, page, size));
+    }
+
+    @GetMapping("/projects/{projectId}/chapters/catalog")
+    public ApiResponse<List<ChapterCatalogResponse>> listChapterCatalog(@PathVariable Long projectId) {
+        return ApiResponse.success(chapterService.listChapterCatalog(projectId));
+    }
+
+    @GetMapping("/chapters/{chapterId}")
+    public ApiResponse<ChapterResponse> getChapter(@PathVariable Long chapterId) {
+        return ApiResponse.success(chapterService.getChapter(chapterId));
     }
 
     @PostMapping("/chapters/{chapterId}/confirm-outline")

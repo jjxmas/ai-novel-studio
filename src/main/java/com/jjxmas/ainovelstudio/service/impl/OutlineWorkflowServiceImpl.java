@@ -40,6 +40,7 @@ import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 public class OutlineWorkflowServiceImpl implements OutlineWorkflowService {
@@ -57,6 +58,7 @@ public class OutlineWorkflowServiceImpl implements OutlineWorkflowService {
     private final OutlineConverter outlineConverter;
     private final OutlineWorkflowConverter outlineWorkflowConverter;
     private final CacheManager cacheManager;
+    private final TransactionTemplate transactionTemplate;
 
     public OutlineWorkflowServiceImpl(
             OutlineWorkflowRunMapper outlineWorkflowRunMapper,
@@ -71,7 +73,8 @@ public class OutlineWorkflowServiceImpl implements OutlineWorkflowService {
             AiOrchestratorService aiOrchestratorService,
             OutlineConverter outlineConverter,
             OutlineWorkflowConverter outlineWorkflowConverter,
-            CacheManager cacheManager) {
+            CacheManager cacheManager,
+            TransactionTemplate transactionTemplate) {
         this.outlineWorkflowRunMapper = outlineWorkflowRunMapper;
         this.projectMapper = projectMapper;
         this.settingLibraryMapper = settingLibraryMapper;
@@ -85,10 +88,10 @@ public class OutlineWorkflowServiceImpl implements OutlineWorkflowService {
         this.outlineConverter = outlineConverter;
         this.outlineWorkflowConverter = outlineWorkflowConverter;
         this.cacheManager = cacheManager;
+        this.transactionTemplate = transactionTemplate;
     }
 
     @Override
-    @Transactional
     public OutlineWorkflowResponse startWorkflow(OutlineWorkflowCreateRequest request) {
         Project project = requireProject(request.getProjectId());
         SettingLibrary setting = requireConfirmedSetting(project.getId());
@@ -97,17 +100,25 @@ public class OutlineWorkflowServiceImpl implements OutlineWorkflowService {
         Map<String, Object> draft = requireJsonObject(result.getContent(), "大纲草案不是合法 JSON");
         Map<String, Object> checks = checkDraft(draft);
         boolean passed = Boolean.TRUE.equals(checks.get("passed"));
-        OutlineWorkflowRun run = new OutlineWorkflowRun()
-                .setProjectId(project.getId())
-                .setSettingLibraryId(setting.getId())
-                .setModelConfigId(request.getModelConfigId())
-                .setStatus(passed ? "draft_ready" : "check_failed")
-                .setDraftJson(JsonUtils.toJson(draft))
-                .setCheckJson(JsonUtils.toJson(checks));
-        outlineWorkflowRunMapper.insert(run);
-        generationJobService.recordFinishedJob(project.getId(), "outline_workflow_draft", "outline_workflow", run.getId(),
-                request.getModelConfigId(), context, Map.of("draft", draft, "checks", checks));
-        return toResponse(run);
+        return transactionTemplate.execute(status -> {
+            Project currentProject = requireProject(project.getId());
+            SettingLibrary currentSetting = requireConfirmedSetting(currentProject.getId());
+            if (!setting.getId().equals(currentSetting.getId())) {
+                throw new BusinessException(ErrorCode.BUSINESS_ERROR, "设定库已变化，请重新生成大纲草案");
+            }
+            OutlineWorkflowRun run = new OutlineWorkflowRun()
+                    .setProjectId(currentProject.getId())
+                    .setSettingLibraryId(currentSetting.getId())
+                    .setModelConfigId(request.getModelConfigId())
+                    .setStatus(passed ? "draft_ready" : "check_failed")
+                    .setDraftJson(JsonUtils.toJson(draft))
+                    .setCheckJson(JsonUtils.toJson(checks));
+            outlineWorkflowRunMapper.insert(run);
+            generationJobService.recordFinishedJob(currentProject.getId(), "outline_workflow_draft",
+                    "outline_workflow", run.getId(), request.getModelConfigId(), context,
+                    Map.of("draft", draft, "checks", checks));
+            return toResponse(run);
+        });
     }
 
     @Override
@@ -225,7 +236,7 @@ public class OutlineWorkflowServiceImpl implements OutlineWorkflowService {
                 Map.of("title", outline.getTitle(), "content", outline.getContent(), "confirmed", true),
                 "ai_generate", "大纲 workflow 提交全局大纲", run.getModelConfigId(), null);
         Project project = requireProject(projectId);
-        project.setStatus("outline_confirmed");
+        project.setWorkflowStage("chapter");
         projectMapper.updateById(project);
         run.setStatus("committed").setCommittedAt(LocalDateTime.now());
         outlineWorkflowRunMapper.updateById(run);
